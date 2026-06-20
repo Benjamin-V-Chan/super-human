@@ -8,11 +8,22 @@ Companion to the PRD. Each person owns a vertical slice; the contracts between s
 
 You build the orchestration connecting all three stages, plus the HUD integration. If the loop doesn't close, nothing else matters — so your job is to get a **dumb end-to-end loop running by Saturday night with every component stubbed**, then let Nathan and Vasi swap in real pieces.
 
-**Deliverables**
+**Vihaan — loop + perception + HUD**
 - **Perception agent:** clip → VLM (Claude vision) → `ProblemSpec` JSON. Strict schema, validated output.
 - **Design agent scaffold:** takes `ProblemSpec` + last sim feedback → emits `DesignParams` + control hints. You build the action/observation interface; Vasi trains the policy inside it.
 - **HUD task registry (`tasks.py`):** register the ADL tasks, wire the gateway, make `hud eval tasks.py claude` run end to end.
+- **Close the dumb end-to-end loop** with every component stubbed by Saturday night, then let Nathan and Vasi swap in real pieces.
+
+**Benji — CAD agents**
 - **CAD bridge:** `DesignParams` → CadQuery/OpenSCAD → STL, executed inside the Daytona sandbox.
+
+**API maxxing (Vihaan) — provision + max every sponsor credit**
+- **Anthropic:** Claude vision (perception) + reasoning (design) — primary VLM.
+- **HUD:** env + eval API + Vasi's training/eval platform.
+- **Modal:** $250 GPU — CV backend + inference serving.
+- **Fireworks AI:** $30 — GRPO RL training (unblock 8 AM Sun kickoff).
+- **Daytona:** CAD sandbox execution (Benji's CAD agents run inside it).
+- **Backups/stretch:** OpenAI (vision backup), Antim Labs (Worldsim/Newton + physical validation), Google DeepMind/GCP (bigger RL run) — keys warm, swap-in instant.
 
 **Credits:** HUD (env + eval API), Anthropic (Claude vision + reasoning), Modal (if serving inference).
 **Milestone:** `hud eval tasks.py claude` returns a real number by dinner Saturday.
