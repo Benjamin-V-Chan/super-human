@@ -115,6 +115,9 @@ class DesignParams:
     # Explicit kinematic chain (proximal→distal). Empty => derive the canonical
     # 4-DoF arm from the scalar params above (backwards compatible).
     links: tuple[LinkDef, ...] = ()
+    # Which shoulder the prosthesis mounts on — set by the design agent from
+    # ProblemSpec.affected_side. Default "torso_right" is backward-compatible.
+    mount_frame: str = "torso_right"
 
     def __post_init__(self) -> None:
         if not self.links:
