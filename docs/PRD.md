@@ -1,203 +1,125 @@
-# Prosthesis-RL — Product Requirements Document
+# Prosthesis-RL SIM — Product Requirements Document
 
 > **Status:** Draft
-> **Last updated:** 2026-06-20
-> **Companion doc:** [WORK_SPLIT.md](../WORK_SPLIT.md) is the single source of truth for ownership, tasks, milestones, and timeline.
+> **Product pivot:** SIM-only. The end product is a reproducible simulator, trained policy, and evaluation artifact. It is not a physical prosthesis, medical device, printable product, or manufacturing workflow.
+> **Related docs:** [TECHNICAL_PLAN.md](TECHNICAL_PLAN.md), [WORK_SPLIT.md](WORK_SPLIT.md)
 
 ## 1. Overview
 
-**Prosthesis-RL** is an AI-driven system that designs and optimizes custom robotic prosthetic arms from a short patient video. It runs a closed **perceive -> design -> verify -> optimize -> manufacture** loop:
+**Prosthesis-RL SIM** is a simulation-first system for designing, testing, and optimizing assistive-limb behaviors in virtual Activities of Daily Living (ADL) scenarios. The system takes a short egocentric clip or structured task description, converts it into a simulated task scenario, generates a candidate limb morphology and controller interface, trains or evaluates a policy in simulation, and reports whether the assistive behavior works.
 
-1. **Perceive** patient pain points, ADL goals, and physical constraints from video.
-2. **Design** an arm specification tailored to the patient's body and tasks.
-3. **Verify** the design in physics simulation against concrete ADL tasks.
-4. **Optimize** future designs with reinforcement learning from verifier feedback.
-5. **Manufacture** the winning design as a printable CAD/STL artifact.
+The product outcome is a **reproducible sim demo**:
 
-The core idea is measurable iteration: AI reasoning proposes designs, a deterministic verifier scores them, empirical evaluation identifies what is working, and the loop improves toward a personalized prosthesis design.
+- A generated or configured assistive-limb morphology in simulation.
+- A runnable MuJoCo/HUD task environment.
+- A trained or scripted policy checkpoint.
+- Quantitative evaluation results.
+- A visual demo of the policy completing the task in sim.
 
-## 2. Problem
+## 2. Product Bet
 
-Prosthetic design is often manual, expensive, and slow. It is hard to quickly translate a patient's real daily limitations into a validated, manufacturable arm design. Prosthesis-RL explores whether video-grounded perception, AI design reasoning, physics verification, and RL optimization can automate a first-pass personalized design loop.
+The core bet is that AI design reasoning plus physics simulation can rapidly search assistive-limb morphologies and control policies without claiming physical readiness. The system is valuable because it can create measurable, repeatable evidence inside simulation before any real-world hardware work exists.
 
 ## 3. Users
 
-**Primary user:** people with upper-limb loss or impairment who need a prosthetic or assistive arm tuned to their body constraints and daily activities.
+**Primary demo user:** a researcher, builder, or evaluator who wants to test whether a simulated assistive limb can complete a concrete ADL task.
 
-**Demo user:** a researcher or builder who provides an ADL clip and receives a simulated design, reward evidence, and CAD/STL output.
+**Secondary user:** a team member who wants to compare morphology/controller choices using reproducible rewards, videos, and metrics.
 
 ## 4. Goals
 
-- Close a real end-to-end loop: video -> `ProblemSpec` -> `DesignParams` -> simulated grade -> reward -> improved design -> exported STL.
-- Produce prosthesis designs that satisfy spatial, mechanical, and task-specific constraints.
-- Make the verifier deterministic and cheap enough for repeated empirical evaluation.
-- Use RL or repeated feedback to improve design proposals over time.
-- Produce a compelling demo with a personalized design, evaluation summary, and STL output.
+- Convert a task clip or structured prompt into a concrete simulation scenario.
+- Generate a candidate simulated limb morphology with valid kinematics, joints, limits, masses, and collision geometry.
+- Train or run a controller/policy for the simulated task.
+- Evaluate candidate designs and policies with deterministic, repeatable metrics.
+- Produce a final sim package: environment config, policy checkpoint, metrics, and demo video.
 
 ## 5. Non-Goals
 
-- Clinical validation, regulatory approval, or real-patient deployment.
-- Physical manufacturing beyond producing printable CAD/STL artifacts.
-- Production-grade web UI.
-- A learned low-level control policy as a hard requirement; scripted or IK control is acceptable for v1.
+- Physical prosthesis delivery.
+- Clinical validation or medical claims.
+- CAD for manufacturing, printable STL as a final product, or hardware-ready design.
+- Human subject deployment.
+- Regulatory approval.
 
-## 6. Success Metrics
+CAD-style geometry can still exist as **simulation geometry**, but it is an internal asset for MuJoCo/HUD rather than a manufactured deliverable.
+
+## 6. End-to-End Flow
+
+```text
+task clip or prompt
+    |
+    v
+TaskSpec
+    |
+    v
+SimSpec + MorphologySpec
+    |
+    v
+MuJoCo/HUD environment
+    |
+    v
+controller or RL policy
+    |
+    v
+evaluation metrics + rollout video + checkpoint
+```
+
+## 7. Core Requirements
+
+### Task Understanding
+
+- Accept a short egocentric clip, existing ADL clip, or structured task prompt.
+- Produce a `TaskSpec` with task goal, objects, success condition, observation needs, and environment assumptions.
+- Avoid overclaiming patient-specific medical inference; uncertain clip details should become explicit assumptions.
+
+### Simulation Assembly
+
+- Convert `TaskSpec` into a `SimSpec` that defines scene geometry, objects, target poses, reward terms, initial states, and episode length.
+- Generate or configure a simulated assistive-limb morphology from `MorphologySpec`.
+- Validate the simulated model before policy runs: joint limits, mass/inertia, actuator ranges, collision settings, and reachable workspace.
+
+### Policy and Control
+
+- Support a scripted or IK controller as the baseline.
+- Support RL training when time allows.
+- Export the final controller as a policy artifact, such as a `.pt` checkpoint or equivalent runnable config.
+
+### Evaluation
+
+- Run repeated rollouts with fixed seeds.
+- Report task success, reward distribution, energy, collisions, constraint violations, and stability.
+- Save rollout video or viewer replay for the final demo.
+
+## 8. Success Metrics
 
 | Metric | Target |
 | --- | --- |
-| End-to-end loop | Input can flow through perceive, design, verify, optimize, and manufacture stages |
-| Eval run | `hud eval tasks.py claude` returns a real numeric score |
-| Verifier determinism | Same inputs produce the same reward |
-| Reward usefulness | Tasks produce meaningful variance rather than all-pass or all-fail scores |
-| CAD output | Top design exports as STL |
-| Demo evidence | Final design includes an evaluation summary and reasoning trace |
+| Runnable sim | A task environment launches locally or through HUD |
+| Policy artifact | A scripted policy or `.pt` checkpoint can be loaded and run |
+| Determinism | Fixed seed rollouts produce repeatable metrics |
+| Task success | Final demo completes at least one clear ADL-style task in sim |
+| Eval evidence | Report includes success rate, reward, failure modes, and rollout video |
+| Scope clarity | Docs make clear that the product is sim-only |
 
-## 7. System Architecture
-
-```text
-patient video
-    |
-    v
-+------------+   ProblemSpec    +------------+   DesignParams   +------------+
-| Perceive   | ---------------> | Design     | ---------------> | Verify     |
-| VLM/CV     |                  | AI reasoner|                  | MuJoCo     |
-+------------+                  +------------+                  +------------+
-                                      ^                                |
-                                      | reward feedback                |
-                                      v                                |
-                                +------------+                        |
-                                | Optimize   | <----------------------+
-                                | RL/GRPO    |
-                                +------------+
-                                      |
-                                      v
-                                +------------+
-                                | Manufacture|
-                                | CAD -> STL |
-                                +------------+
-```
-
-### Perceive
-
-Extracts relevant patient context from video and structured intake. The output is a validated `ProblemSpec` containing target ADL tasks and physical constraints.
-
-### Design
-
-Uses AI reasoning to generate candidate prosthesis parameters. The output is `DesignParams`, which must satisfy schema and range constraints before reaching CAD or simulation.
-
-### Verify
-
-Builds a parametric simulation from `DesignParams`, runs ADL task scenes, and returns a deterministic reward. The verifier should capture reach, grasp, energy, ROM violations, and collision behavior.
-
-### Optimize
-
-Uses verifier feedback to improve future design proposals. The optimization layer should prioritize reward distributions with usable variance and avoid all-pass/all-fail tasks.
-
-### Manufacture
-
-Converts the selected `DesignParams` into CAD geometry and exports printable STL artifacts.
-
-## 8. Data Contracts
-
-The contracts are the coordination boundary between components.
-
-### `ProblemSpec`
-
-```jsonc
-{
-  "tasks": ["reach", "grasp", "feeding"],
-  "constraints": {
-    "rom": {
-      "shoulder_flexion": [0.0, 120.0],
-      "elbow_flexion": [0.0, 145.0],
-      "wrist_rotation": [-80.0, 80.0]
-    },
-    "residual_strength": 30.0,
-    "grip_capacity": 15.0
-  }
-}
-```
-
-- `tasks` must be non-empty and validated against the task registry.
-- `rom` values are patient-facing degrees.
-- Strength and grip fields are non-negative numeric constraints.
-
-### `DesignParams`
-
-```jsonc
-{
-  "upper_arm_len": 0.30,
-  "forearm_len": 0.25,
-  "joint_stiffness": 10.0,
-  "grip_width": 0.08,
-  "joint_limits": {
-    "shoulder_flexion": [0.0, 2.094],
-    "elbow_flexion": [0.0, 2.531],
-    "wrist_rotation": [-1.396, 1.396]
-  }
-}
-```
-
-- Lengths are meters.
-- Joint limits are radians for simulation compatibility.
-- Invalid ranges should be rejected rather than silently clamped.
-- Design joint limits must stay within patient ROM after unit conversion.
-
-### `Reward`
-
-- A single deterministic `float` per episode.
-- Higher is better.
-- Same `ProblemSpec`, `DesignParams`, task, and seed should produce the same value.
-
-## 9. Reward and Grading
-
-The verifier composes reward from task success and physically meaningful penalties:
-
-```text
-reward = clip(success - energy_penalty - rom_penalty - collision_penalty)
-```
-
-| Term | Meaning |
-| --- | --- |
-| `success` | Fraction of task goal achieved |
-| `energy_penalty` | Normalized actuator energy used |
-| `rom_penalty` | Amount of motion beyond patient limits |
-| `collision_penalty` | Self-collision or unsafe contact measure |
-
-Weights can be tuned per task so rewards have useful variance for empirical comparison and optimization.
-
-## 10. Infrastructure
-
-| Provider / Tool | Role |
-| --- | --- |
-| Anthropic / Claude | Vision and design reasoning |
-| HUD | Eval API and training/eval platform |
-| MuJoCo | Physics simulation |
-| OpenSCAD / CadQuery | Parametric CAD generation |
-| Daytona | CAD sandbox execution |
-| Fireworks AI | GRPO or RL training |
-| Modal | Optional heavier CV or inference serving |
-| Antim Worldsim/Newton | Optional higher-fidelity task validation |
-
-## 11. Risks
+## 9. Risks
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Loop does not close | Demo fails regardless of component quality | Stand up a stubbed loop first |
-| Contracts churn | Components block each other | Keep schemas explicit and shared |
-| Reward has no variance | Optimization cannot learn | Tune tasks and weights empirically |
-| Sim is not faithful enough | In-sim winners may not transfer | Keep grading physically grounded and add fidelity checks |
-| CAD output is invalid | Final design is not usable | Add validation gates before export |
-| Perception guesses too much | `ProblemSpec` is unreliable | Pair video with structured intake when needed |
+| Sim task is too vague | Policy cannot be evaluated cleanly | Define task success and failure before training |
+| Morphology invalid | MuJoCo/HUD cannot run the environment | Add model validation gates before rollout |
+| Reward has no useful variance | RL cannot improve | Tune reward and scenario difficulty with baseline rollouts |
+| Clip interpretation is uncertain | Scenario becomes speculative | Record assumptions in `TaskSpec` |
+| Demo depends on training instability | Final demo may fail | Keep scripted/IK baseline runnable |
 
-## 12. Open Questions
+## 10. Final Deliverable
 
-- Exact ADL task registry IDs and success criteria.
-- Final numeric ranges for every `ProblemSpec` and `DesignParams` field.
-- Per-task reward weights.
-- Which task, if any, should receive higher-fidelity Worldsim/Newton validation.
-- Whether learned low-level control is attempted after scripted/IK control works.
+The final deliverable is a sim bundle:
 
-## 13. Scope Boundary
+- Task/scenario config.
+- Simulated assistive-limb morphology.
+- Controller or policy artifact.
+- Evaluation report.
+- Rollout video or viewer replay.
 
-This produces simulation evidence and CAD concepts, not a medical device. Real prosthetic deployment would require biomechanical safety analysis, clinical validation, and regulatory review.
+Any physical interpretation is explicitly out of scope.
