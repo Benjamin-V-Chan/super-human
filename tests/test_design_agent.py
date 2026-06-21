@@ -279,3 +279,167 @@ def test_export_mjcf_contains_joint_names(tmp_path: Path):
     content = mjcf_path.read_text()
     for jname in params.joint_names:
         assert jname in content, f"joint '{jname}' missing from MJCF"
+
+
+# ── RequirementsAgent brief integration ───────────────────────────────────────
+
+def _twist_brief() -> dict:
+    """Minimal brief matching RequirementsAgent fallback for 'twist' action."""
+    return {
+        "task": {"primary_action": "twist cap", "adl_category": "grasp", "task_id": "grasp_1_1"},
+        "mount_side": "left",
+        "rom_targets_deg": {
+            "shoulder_flexion": [0.0, 110.0],
+            "elbow_flexion": [0.0, 120.0],
+            "wrist_rotation": [-90.0, 90.0],
+        },
+        "design_params": {
+            "upper_arm_len": 0.30,
+            "forearm_len": 0.26,
+            "grip_width": 0.06,
+            "grip_force_target_n": 18.0,
+            "joint_stiffness": 10.0,
+        },
+        "actuator_torque_nm": {"shoulder_flexion": 20.0, "elbow_flexion": 15.0},
+        "rationale": "cap twisting needs pronation and firm grip",
+        "source": "fallback",
+        "joint_limits_rad": {
+            "shoulder_flexion": [0.0, 1.9199],
+            "elbow_flexion": [0.0, 2.0944],
+            "wrist_rotation": [-1.5708, 1.5708],
+        },
+    }
+
+
+def test_propose_uses_brief_wrist_range():
+    """ROM from the brief should flow through to the wrist joint range."""
+    agent = DesignAgent()
+    params, _ = agent.propose(_problem(), brief=_twist_brief())
+    wrist = next(j for l in params.links for j in l.joints if j.name == "wrist")
+    assert wrist.range_deg[1] == pytest.approx(90.0)
+
+
+def test_propose_brief_sets_grip_width():
+    agent = DesignAgent()
+    params, _ = agent.propose(_problem(), brief=_twist_brief())
+    assert params.grip_width == pytest.approx(0.06)
+
+
+def test_propose_brief_grip_force_in_hints():
+    agent = DesignAgent()
+    _, hints = agent.propose(_problem(), brief=_twist_brief())
+    assert hints["grip_force_target"] == pytest.approx(0.18)
+
+
+def test_propose_candidates_with_brief_all_valid():
+    agent = DesignAgent()
+    for params, _ in agent.propose_candidates(_problem(), brief=_twist_brief(), n=3):
+        assert agent.validate(params, task_reach_m=0.5) == []
+
+
+def test_propose_candidates_with_brief_vary_around_base():
+    """Candidates should differ from each other in arm length."""
+    agent = DesignAgent()
+    candidates = agent.propose_candidates(_problem(), brief=_twist_brief(), n=3)
+    lengths = [p.upper_arm_len + p.forearm_len for p, _ in candidates]
+    assert len(set(lengths)) > 1, "all candidates are identical — variation not applied"
+
+
+# ── evaluate_candidates() ────────────────────────────────────────────────────
+
+class _StubVerifier:
+    """Returns deterministic stub SimFeedback for testing without MuJoCo."""
+    def __init__(self, reward: float = 0.3, success: float = 0.5):
+        self._reward = reward
+        self._success = success
+
+    def evaluate(self, problem, design, control_hints, *, mesh_dir=None,
+                 n_targets=4, seconds=3.0, seed=0):
+        from prosthesis_rl.contracts import RewardBreakdown, SimFeedback
+        bd = RewardBreakdown(success=self._success, energy_penalty=0.1,
+                             rom_penalty=0.0, collision_penalty=0.0)
+        return SimFeedback(
+            reward=self._reward + seed * 0.01,
+            breakdown=bd,
+            metrics={
+                "reach_success": self._success,
+                "energy": 200.0,
+                "final_distance_cm": 8.0,
+                "self_collision": 0.0,
+                "rom_violation": 0.0,
+            },
+        )
+
+
+class _StubCad:
+    def export_arm(self, params, name="candidate"):
+        return Path("assets/stl/stub")
+
+
+def test_evaluate_candidates_returns_one_per_candidate():
+    agent = DesignAgent()
+    candidates = agent.propose_candidates(_problem(), n=2)
+    results = agent.evaluate_candidates(
+        candidates, _problem(), _StubVerifier(), _StubCad(), n_seeds=3,
+    )
+    assert len(results) == 2
+
+
+def test_evaluate_candidates_aggregates_seeds():
+    agent = DesignAgent()
+    candidates = agent.propose_candidates(_problem(), n=1)
+    results = agent.evaluate_candidates(
+        candidates, _problem(), _StubVerifier(reward=0.4), _StubCad(), n_seeds=5,
+    )
+    er = results[0]
+    assert er.num_rollouts == 5
+    assert er.success_rate == pytest.approx(0.5)
+    assert er.mean_reward == pytest.approx(0.4 + (0+1+2+3+4)*0.01/5)
+    assert er.reward_variance > 0  # seeds produce slightly different rewards
+
+
+def test_evaluate_candidates_collision_rate():
+    class _CollisionVerifier(_StubVerifier):
+        def evaluate(self, *a, seed=0, **kw):
+            fb = super().evaluate(*a, seed=seed, **kw)
+            fb.metrics["self_collision"] = 1.0
+            return fb
+    agent = DesignAgent()
+    candidates = agent.propose_candidates(_problem(), n=1)
+    results = agent.evaluate_candidates(
+        candidates, _problem(), _CollisionVerifier(), _StubCad(), n_seeds=3,
+    )
+    assert results[0].collision_rate == pytest.approx(1.0)
+
+
+# ── rationale_report() ───────────────────────────────────────────────────────
+
+def test_rationale_report_contains_winner():
+    agent = DesignAgent()
+    candidates = [DesignParams(), DesignParams()]
+    results = [
+        EvalResult(mean_reward=0.2, success_rate=0.3, collision_rate=0.0, num_rollouts=10),
+        EvalResult(mean_reward=0.6, success_rate=0.7, collision_rate=0.0, num_rollouts=10),
+    ]
+    best_i, rat = agent.compare(candidates, results)
+    report = agent.rationale_report(candidates, results, best_i, rat, action="reach a shelf")
+    assert "◄ BEST" in report
+    assert "Candidate 1" in report
+    assert "reach a shelf" in report
+
+
+def test_rationale_report_flags_low_success():
+    agent = DesignAgent()
+    candidates = [DesignParams()]
+    results = [EvalResult(mean_reward=-0.1, success_rate=0.1, collision_rate=0.0, num_rollouts=10)]
+    report = agent.rationale_report(candidates, results, 0, "Candidate 0", action="test")
+    assert "Low success rate" in report
+
+
+def test_rationale_report_flags_high_energy():
+    agent = DesignAgent()
+    candidates = [DesignParams()]
+    results = [EvalResult(mean_reward=0.3, success_rate=0.6, mean_energy=800.0,
+                          collision_rate=0.0, num_rollouts=10)]
+    report = agent.rationale_report(candidates, results, 0, "Candidate 0", action="test")
+    assert "High energy" in report
