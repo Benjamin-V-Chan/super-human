@@ -42,6 +42,11 @@ Evaluator
 
 ### `MorphologySpec`
 
+> **Implemented as `DesignParams`.** The design agent emits an explicit
+> `DesignParams.links` chain (`LinkDef` + `JointDef`), which *is* the morphology —
+> there is no separate `MorphologySpec` class. The shape below is the conceptual
+> contract; `DesignParams` is the source of truth (see `prosthesis_rl/contracts`).
+
 ```jsonc
 {
   "mount_frame": "torso_right",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 import json
 import math
 from typing import Any
@@ -163,3 +163,120 @@ class SimFeedback:
 
     def to_json(self, indent: int | None = None) -> str:
         return json.dumps(asdict(self), indent=indent)
+
+
+# ── End-to-end pipeline contracts ─────────────────────────────────────────────
+# The runtime loop is: TaskSpec (intake) → DesignParams + SimSpec (build) →
+# PolicyArtifact (control) → EvalResult (evaluation). These mirror
+# docs/TECHNICAL_PLAN.md and are the single source of truth every stage agrees
+# on. Note: the plan's "MorphologySpec" is realized by `DesignParams` — its
+# `links` (LinkDef chain) IS the morphology, so there is no separate class.
+
+
+class _JsonContract:
+    """Shared JSON (de)serialization for the flat pipeline contracts."""
+
+    def to_json(self, indent: int | None = None) -> str:
+        return json.dumps(asdict(self), indent=indent)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]):
+        """Build from a dict, ignoring unknown keys (tolerant of extra fields)."""
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+    @classmethod
+    def from_json(cls, text: str):
+        return cls.from_dict(json.loads(text))
+
+
+@dataclass
+class TaskSpec(_JsonContract):
+    """A concrete, measurable ADL task — the output of task intake.
+
+    Uncertain clip/prompt details belong in `assumptions`, not in `goal`.
+    """
+
+    task_id: str = ""
+    goal: str = ""
+    objects: list[str] = field(default_factory=list)
+    success_condition: str = ""
+    episode_seconds: float = 8.0
+    assumptions: list[str] = field(default_factory=list)
+
+    def validate(self) -> list[str]:
+        """Return a list of contract violations; empty means valid."""
+        problems: list[str] = []
+        if not self.task_id:
+            problems.append("task_id is required")
+        if not self.goal:
+            problems.append("goal is required")
+        if not self.success_condition:
+            problems.append("success_condition is required (must be measurable)")
+        if self.episode_seconds <= 0:
+            problems.append("episode_seconds must be > 0")
+        return problems
+
+
+@dataclass
+class SimSpec(_JsonContract):
+    """Scene, timing, reward, and observation config for one runnable env."""
+
+    scene: str = ""
+    physics_hz: int = 100
+    control_hz: int = 20
+    initial_state_seed: int = 0
+    reward_terms: list[str] = field(
+        default_factory=lambda: ["success", "distance", "energy", "collision", "joint_limit"]
+    )
+    observations: list[str] = field(
+        default_factory=lambda: ["joint_pos", "joint_vel", "target_pose", "end_effector_pose"]
+    )
+
+    def validate(self) -> list[str]:
+        problems: list[str] = []
+        if not self.scene:
+            problems.append("scene is required")
+        if self.physics_hz <= 0:
+            problems.append("physics_hz must be > 0")
+        if self.control_hz <= 0:
+            problems.append("control_hz must be > 0")
+        if self.control_hz > self.physics_hz:
+            problems.append("control_hz must not exceed physics_hz")
+        if not self.reward_terms:
+            problems.append("at least one reward term is required")
+        return problems
+
+
+@dataclass
+class PolicyArtifact(_JsonContract):
+    """A loadable controller: scripted/IK config or an RL checkpoint."""
+
+    kind: str = "scripted_ik"  # "scripted_ik" | "rl_checkpoint" | ...
+    path: str = ""
+    inputs: list[str] = field(default_factory=lambda: ["observation"])
+    outputs: list[str] = field(default_factory=lambda: ["joint_targets"])
+
+    def validate(self) -> list[str]:
+        problems: list[str] = []
+        if not self.kind:
+            problems.append("kind is required")
+        if not self.path:
+            problems.append("path is required")
+        return problems
+
+
+@dataclass
+class EvalResult(_JsonContract):
+    """Per-candidate evaluation summary produced by the verifier/evaluator."""
+
+    task_id: str = ""
+    num_rollouts: int = 0
+    success_rate: float = 0.0
+    mean_reward: float = 0.0
+    mean_energy: float = 0.0
+    collision_rate: float = 0.0
+    video_path: str = ""

@@ -5,34 +5,21 @@ explicit kinematic chains, spatial/reachability validation, and candidate rankin
 
 DesignParams.links (LinkDef chain) IS the MorphologySpec — the coordinator
 added JointDef/LinkDef/default_arm_chain to contracts so no local duplicates.
-EvalResult stays local until the coordinator adds it to contracts.
+EvalResult now lives in contracts too; re-exported here for back-compat.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from prosthesis_rl.contracts import (
     DesignParams,
+    EvalResult,
     JointDef,
     LinkDef,
     ProblemSpec,
     SimFeedback,
 )
 
-
-# ── Pending contract addition — propose to coordinator ────────────────────────
-
-@dataclass
-class EvalResult:
-    """Per-candidate evaluation summary. Migrate to contracts once coordinator adds it."""
-    task_id: str = ""
-    num_rollouts: int = 0
-    success_rate: float = 0.0
-    mean_reward: float = 0.0
-    mean_energy: float = 0.0
-    collision_rate: float = 0.0
-    video_path: str = ""
+__all__ = ["DesignAgent", "EvalResult"]
 
 
 # ── Agent ─────────────────────────────────────────────────────────────────────
