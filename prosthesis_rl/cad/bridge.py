@@ -20,79 +20,71 @@ class CadBridge:
     def __init__(self, output_dir: str | Path = "assets/stl") -> None:
         self.output_dir = Path(output_dir)
 
-    def export_mjcf(self, spec: Any, name: str = "candidate") -> Path:
-        """Generate minimal valid MJCF from a MorphologySpec (or compatible dict).
+    def export_arm(self, params: DesignParams, name: str = "candidate") -> Path:
+        """Export one STL per link into assets/stl/{name}/ for MuJoCo mesh skinning.
 
-        Writes to assets/mjcf/{name}.xml for Nathan's MuJoCo environment.
-        Accepts the MorphologySpec dataclass from design.py or a plain dict.
+        The mjcf_builder skins each link body with {link.name}.stl from this dir
+        when mesh_dir is passed. Returns the directory path.
         """
-        links = getattr(spec, "links", None) or spec.get("links", [])
-        joints = getattr(spec, "joints", None) or spec.get("joints", [])
-        actuators = getattr(spec, "actuators", None) or spec.get("actuators", [])
+        mesh_dir = self.output_dir / name
+        mesh_dir.mkdir(parents=True, exist_ok=True)
+        for link in params.links:
+            tris = self._link_triangles(link)
+            stl_path = mesh_dir / f"{link.name}.stl"
+            stl_path.write_bytes(self._pack_binary_stl(tris))
+        return mesh_dir
 
+    def export_mjcf(self, spec: Any, name: str = "candidate") -> Path:
+        """Generate minimal valid MJCF from a DesignParams (or legacy dict).
+
+        Writes to assets/mjcf/{name}.xml. Prefer sim.mjcf_builder.build_mjcf()
+        for full env generation with room/human/target; this is a lightweight
+        standalone export for inspection and handoff.
+        """
+        # Normalise to DesignParams for uniform handling
+        params = self._coerce_to_design_params(spec)
         mjcf_dir = self.output_dir.parent / "mjcf"
         mjcf_dir.mkdir(parents=True, exist_ok=True)
 
         root = ET.Element("mujoco", model=f"prosthesis_{name}")
-        ET.SubElement(root, "compiler", angle="degree")
+        ET.SubElement(root, "compiler", angle="radian")
 
         worldbody = ET.SubElement(root, "worldbody")
         parent_body = ET.SubElement(worldbody, "body", name="mount", pos="0 0 0")
 
-        joint_map: dict[str, Any] = {}
-        for j in joints:
-            jname = j.name if hasattr(j, "name") else j["name"]
-            joint_map[jname] = j
-
-        # Canonical joint order matches link order (proximal → distal)
-        joint_order = ["shoulder_flexion", "elbow_flexion"]
         z_offset = 0.0
+        actuator_el = ET.SubElement(root, "actuator")
 
-        for i, link in enumerate(links):
-            link_name = link.name if hasattr(link, "name") else link["name"]
-            link_len = link.length_m if hasattr(link, "length_m") else link["length_m"]
-            link_mass = link.mass_kg if hasattr(link, "mass_kg") else link["mass_kg"]
-
+        for link in params.links:
             body = ET.SubElement(
                 parent_body, "body",
-                name=link_name,
-                pos=f"0 0 {-z_offset:.4f}",
+                name=link.name,
+                pos=f"0 0 {-z_offset:.5g}",
             )
-
-            if i < len(joint_order) and joint_order[i] in joint_map:
-                j = joint_map[joint_order[i]]
-                jname = j.name if hasattr(j, "name") else j["name"]
-                lo, hi = (
-                    j.limits_rad if hasattr(j, "limits_rad") else j["limits_rad"]
-                )
+            for joint in link.joints:
+                lo_r = math.radians(joint.range_deg[0])
+                hi_r = math.radians(joint.range_deg[1])
+                ax = " ".join(f"{a:.5g}" for a in joint.axis)
                 ET.SubElement(
                     body, "joint",
-                    name=jname,
-                    type="hinge",
-                    axis="1 0 0",
-                    range=f"{math.degrees(lo):.1f} {math.degrees(hi):.1f}",
+                    name=joint.name,
+                    type=joint.type,
+                    axis=ax,
+                    range=f"{lo_r:.5g} {hi_r:.5g}",
                 )
-
-            radius = 0.030 if i == 0 else 0.025
+                ET.SubElement(
+                    actuator_el, "motor",
+                    joint=joint.name,
+                    gear="20.0",
+                )
             ET.SubElement(
                 body, "geom",
                 type="capsule",
-                size=f"{radius:.4f} {link_len / 2:.4f}",
-                pos=f"0 0 {-link_len / 2:.4f}",
-                mass=str(link_mass),
+                fromto=f"0 0 0 0 0 {-link.length:.5g}",
+                size=f"{link.radius:.5g}",
             )
-
-            z_offset += link_len
+            z_offset += link.length
             parent_body = body
-
-        actuator_el = ET.SubElement(root, "actuator")
-        for act in actuators:
-            ajoint = act.joint if hasattr(act, "joint") else act["joint"]
-            atorque = (
-                act.torque_limit_nm if hasattr(act, "torque_limit_nm")
-                else act["torque_limit_nm"]
-            )
-            ET.SubElement(actuator_el, "motor", joint=ajoint, gear=f"{atorque:.1f}")
 
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ")
@@ -133,6 +125,21 @@ class CadBridge:
             grip_width=0.08,
             joint_limits=joint_limits,
         )
+
+    def _link_triangles(self, link) -> list[tuple]:
+        """Capsule geometry for a single LinkDef, extending along -Z from the origin."""
+        radius = getattr(link, "radius", 0.025)
+        length = getattr(link, "length", 0.30)
+        tris = self._cylinder(
+            center=(0.0, 0.0, -length / 2),
+            axis=(0.0, 0.0, 1.0),
+            radius=radius,
+            height=length,
+            segments=24,
+        )
+        tris += self._sphere(center=(0.0, 0.0, 0.0), radius=radius * 1.15, segments=12)
+        tris += self._sphere(center=(0.0, 0.0, -length), radius=radius * 1.15, segments=12)
+        return tris
 
     def _build_arm_triangles(self, params: DesignParams) -> list[tuple]:
         """Return list of (normal, v0, v1, v2) tuples for all arm components."""
