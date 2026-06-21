@@ -73,7 +73,13 @@ class PerceptionBackend:
             residual_strength=self._clean_strength(detection.get("residual_strength", {})),
             grip_capacity=float(detection.get("grip_capacity", 0.45)),
         )
-        return ProblemSpec(tasks=tasks, constraints=constraints)
+        return ProblemSpec(
+            tasks=tasks,
+            constraints=constraints,
+            primary_action=str(detection.get("primary_action", "") or "").strip(),
+            affected_side=affected_side,
+            residual_side=residual_side,
+        )
 
     @staticmethod
     def _clean_side(side: Any, default: str) -> str:

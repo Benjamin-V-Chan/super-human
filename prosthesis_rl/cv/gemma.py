@@ -42,23 +42,28 @@ Reason from the footage:
   side is the side to prosthetize.
 
 Infer and report:
-1. affected_side: "left" or "right" — the side that needs the prosthesis.
-2. residual_side: "left" or "right" — the functioning side doing the work.
-3. tasks: ADL tasks the prosthesis must enable, chosen ONLY from
+1. primary_action: a short, SPECIFIC description of the single main activity the
+   person is performing — concrete object + motion, e.g. "drinking water from a
+   bottle", "typing on a laptop", "picking up a cup". The design is optimized
+   around this action.
+2. affected_side: "left" or "right" — the side that needs the prosthesis.
+3. residual_side: "left" or "right" — the functioning side doing the work.
+4. tasks: ADL task categories the primary_action implies, chosen ONLY from
    ["reach", "grasp", "feeding"].
-4. rom: per-joint range of motion in DEGREES the prosthesis should provide for
+5. rom: per-joint range of motion in DEGREES the prosthesis should provide for
    {shoulder_flexion, elbow_flexion, wrist_rotation}.
-5. residual_strength: per-region 0..1 of the residual functioning limb.
-6. grip_capacity: a single 0..1 grip the prosthesis must deliver.
-7. pain_points: short observed difficulties the prosthesis should solve.
+6. residual_strength: per-region 0..1 of the residual functioning limb.
+7. grip_capacity: a single 0..1 grip the prosthesis must deliver.
+8. pain_points: short observed difficulties the prosthesis should solve.
 
-Decide affected_side and residual_side ONLY from what the footage shows — they
-are opposite sides. Do not default to a side; determine it from which hand is
-visibly doing the work.
+Decide primary_action, affected_side and residual_side ONLY from what the
+footage shows — affected/residual are opposite sides. Do not default to a side;
+determine it from which hand is visibly doing the work.
 
 Respond with ONLY a JSON object, no prose, of this exact shape (the
 "<left|right>" placeholders mean: choose based on the video):
 {
+  "primary_action": "drinking water from a bottle",
   "affected_side": "<left|right>",
   "residual_side": "<left|right>",
   "tasks": ["reach", "grasp"],
@@ -72,6 +77,7 @@ Respond with ONLY a JSON object, no prose, of this exact shape (the
 # Deterministic detection used whenever the live model is unavailable. Keeps the
 # end-to-end loop reproducible and green without a key.
 _STUB_DETECTION: dict[str, Any] = {
+    "primary_action": "drinking water from a bottle one-handed",
     "affected_side": "left",
     "residual_side": "right",
     "tasks": ["reach", "grasp"],

@@ -95,7 +95,8 @@ class DesignAgent:
             if feedback.reward < 0.25:
                 forearm_m = min(0.34, forearm_m + 0.02)
 
-        spec = self._build_spec(upper_m, forearm_m, shoulder_lim, elbow_lim)
+        mount = self._mount_frame(problem)
+        spec = self._build_spec(upper_m, forearm_m, shoulder_lim, elbow_lim, mount)
         errors = self.validate(spec, self._task_reach_m(problem))
         if errors:
             raise ValueError(f"Proposed morphology failed validation: {errors}")
@@ -122,8 +123,9 @@ class DesignAgent:
             (0.34, 0.30, (0.0, math.radians(180.0)), (0.0, math.radians(145.0))),
         ]
         reach = self._task_reach_m(problem)
+        mount = self._mount_frame(problem)
         for upper_m, forearm_m, sh_lim, el_lim in variations[: n - 1]:
-            spec = self._build_spec(upper_m, forearm_m, sh_lim, el_lim)
+            spec = self._build_spec(upper_m, forearm_m, sh_lim, el_lim, mount)
             if not self.validate(spec, reach):
                 hints: dict[str, float] = {"ik_weight": 1.0, "grip_force_target": 0.35}
                 candidates.append((spec, hints))
@@ -221,14 +223,21 @@ class DesignAgent:
         return float(problem.constraints.rom.get("reach_m", 0.5))
 
     @staticmethod
+    def _mount_frame(problem: ProblemSpec) -> str:
+        """Mount the prosthesis on the affected side from perception."""
+        side = getattr(problem, "affected_side", "") or "right"
+        return f"torso_{side}" if side in {"left", "right"} else "torso_right"
+
+    @staticmethod
     def _build_spec(
         upper_m: float,
         forearm_m: float,
         shoulder_lim: tuple[float, float],
         elbow_lim: tuple[float, float],
+        mount_frame: str = "torso_right",
     ) -> MorphologySpec:
         return MorphologySpec(
-            mount_frame="torso_right",
+            mount_frame=mount_frame,
             links=[
                 LinkSpec("upper", upper_m, _DEFAULT_UPPER_MASS_KG),
                 LinkSpec("forearm", forearm_m, _DEFAULT_FOREARM_MASS_KG),

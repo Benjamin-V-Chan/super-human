@@ -16,6 +16,11 @@ class Constraints:
 class ProblemSpec:
     tasks: list[dict[str, Any]] = field(default_factory=list)
     constraints: Constraints = field(default_factory=Constraints)
+    # Perception findings the design agent optimizes around (defaults keep the
+    # contract backward-compatible).
+    primary_action: str = ""  # specific observed action, e.g. "drinking from a bottle"
+    affected_side: str = ""  # "left" | "right" — limb that needs the prosthesis
+    residual_side: str = ""  # "left" | "right" — compensating limb
 
 
 @dataclass
