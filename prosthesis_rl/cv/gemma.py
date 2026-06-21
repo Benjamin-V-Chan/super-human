@@ -27,38 +27,58 @@ from typing import Any
 # swap to a Gemma 3 id (e.g. "gemma-3-27b-it") on the API-key path if preferred.
 DEFAULT_MODEL = "gemini-2.5-flash"
 
-_PROMPT = """You are a rehabilitation-robotics assistant analyzing frames from a
-short clip of a person attempting activities of daily living (ADL) with an
-upper-limb impairment.
+_PROMPT = """You are the perception module of a custom upper-limb prosthetic
+design system. Every subject you analyze is a candidate for an upper-limb
+prosthesis: one of their arms/hands is absent, amputated, or non-functional, and
+the other arm is compensating for everyday tasks. Your job is to read their
+functional situation from the video frames and infer what the prosthesis must
+restore.
 
-From the frames, identify:
-1. Which ADL tasks the person struggles with, chosen ONLY from:
+Reason from the footage:
+- Watch which hand/arm actually does the work (reaching, holding, manipulating).
+  That is the COMPENSATING (residual functioning) side.
+- The opposite side is the one that is missing/non-functional and NEEDS the
+  prosthesis. If only one hand is ever visible performing actions, the other
+  side is the side to prosthetize.
+
+Infer and report:
+1. affected_side: "left" or "right" — the side that needs the prosthesis.
+2. residual_side: "left" or "right" — the functioning side doing the work.
+3. tasks: ADL tasks the prosthesis must enable, chosen ONLY from
    ["reach", "grasp", "feeding"].
-2. The physical limitations you can infer, as rough numbers:
-   - rom: per-joint range of motion in DEGREES for any of
-     {shoulder_flexion, elbow_flexion, wrist_rotation}
-   - residual_strength: per-region 0..1 (e.g. {"shoulder": 0.6})
-   - grip_capacity: a single 0..1 estimate of achievable grip
-3. A short pain_points list of observed difficulties.
+4. rom: per-joint range of motion in DEGREES the prosthesis should provide for
+   {shoulder_flexion, elbow_flexion, wrist_rotation}.
+5. residual_strength: per-region 0..1 of the residual functioning limb.
+6. grip_capacity: a single 0..1 grip the prosthesis must deliver.
+7. pain_points: short observed difficulties the prosthesis should solve.
 
-Respond with ONLY a JSON object, no prose, of this exact shape:
+Decide affected_side and residual_side ONLY from what the footage shows — they
+are opposite sides. Do not default to a side; determine it from which hand is
+visibly doing the work.
+
+Respond with ONLY a JSON object, no prose, of this exact shape (the
+"<left|right>" placeholders mean: choose based on the video):
 {
-  "tasks": ["reach"],
-  "rom": {"elbow_flexion": 120.0},
-  "residual_strength": {"shoulder": 0.6},
+  "affected_side": "<left|right>",
+  "residual_side": "<left|right>",
+  "tasks": ["reach", "grasp"],
+  "rom": {"shoulder_flexion": 110.0, "elbow_flexion": 130.0, "wrist_rotation": 60.0},
+  "residual_strength": {"shoulder": 0.7, "elbow": 0.6},
   "grip_capacity": 0.4,
-  "pain_points": ["limited elbow extension when reaching"]
+  "pain_points": ["one-handed compensation for bimanual tasks"]
 }
 """
 
 # Deterministic detection used whenever the live model is unavailable. Keeps the
 # end-to-end loop reproducible and green without a key.
 _STUB_DETECTION: dict[str, Any] = {
+    "affected_side": "left",
+    "residual_side": "right",
     "tasks": ["reach", "grasp"],
     "rom": {"shoulder_flexion": 95.0, "elbow_flexion": 120.0, "wrist_rotation": 45.0},
     "residual_strength": {"shoulder": 0.7, "elbow": 0.6},
     "grip_capacity": 0.45,
-    "pain_points": ["limited elbow extension when reaching", "weak grip on grasp"],
+    "pain_points": ["one-handed compensation for bimanual daily tasks"],
     "source": "stub",
 }
 
@@ -119,7 +139,11 @@ class GemmaVideoAnalyzer:
             data = Path(path).read_bytes()
             parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
 
-        response = client.models.generate_content(model=self.model, contents=parts)
+        # temperature=0 for reproducible reads (PRD determinism requirement).
+        config = types.GenerateContentConfig(temperature=0.0)
+        response = client.models.generate_content(
+            model=self.model, contents=parts, config=config
+        )
         detection = _extract_json(response.text or "")
         if detection is None:
             raise ValueError("Gemma response was not parseable JSON")

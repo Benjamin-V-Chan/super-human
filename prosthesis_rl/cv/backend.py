@@ -47,6 +47,10 @@ class PerceptionBackend:
     ) -> ProblemSpec:
         clip_path = str(clip_path)
         pain_points = list(detection.get("pain_points", []))
+        affected_side = self._clean_side(detection.get("affected_side"), default="left")
+        residual_side = self._clean_side(
+            detection.get("residual_side"), default="right" if affected_side == "left" else "left"
+        )
 
         raw_tasks = [t for t in detection.get("tasks", []) if t in _ALLOWED_TASKS]
         if not raw_tasks:  # contract requires a non-empty task list
@@ -57,6 +61,8 @@ class PerceptionBackend:
                 "id": _TASK_IDS[t],
                 "name": _TASK_NAMES[t],
                 "source_clip": clip_path,
+                "affected_side": affected_side,
+                "residual_side": residual_side,
                 "pain_points": pain_points,
             }
             for t in raw_tasks
@@ -68,6 +74,11 @@ class PerceptionBackend:
             grip_capacity=float(detection.get("grip_capacity", 0.45)),
         )
         return ProblemSpec(tasks=tasks, constraints=constraints)
+
+    @staticmethod
+    def _clean_side(side: Any, default: str) -> str:
+        s = str(side).strip().lower() if side is not None else ""
+        return s if s in {"left", "right"} else default
 
     @staticmethod
     def _clean_rom(rom: Any) -> dict[str, float]:
