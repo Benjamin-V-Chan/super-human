@@ -30,6 +30,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - clear hint if dep missi
     ) from exc
 
 from prosthesis_rl.contracts import DesignParams
+from prosthesis_rl.rl.rollout import CONTROL_HZ, build_obs, map_action
 from prosthesis_rl.sim.mjcf_builder import EE_SITE, build_mjcf, joint_ranges
 
 REACH_SUCCESS_M = 0.05  # ee within 5 cm of target == success (matches sim.control)
@@ -46,11 +47,15 @@ class ReachEnv(gym.Env):
         *,
         mesh_dir: str | Path | None = None,
         mount_pos: tuple[float, float, float] = (0.0, -0.40, 1.00),
-        control_hz: float = 25.0,
+        control_hz: float = CONTROL_HZ,
         max_steps: int = 150,
         seed: int | None = None,
     ) -> None:
         super().__init__()
+        if control_hz <= 0:
+            raise ValueError("control_hz must be greater than zero")
+        if max_steps < 1:
+            raise ValueError("max_steps must be at least 1")
         import mujoco
 
         self._mj = mujoco
@@ -65,6 +70,8 @@ class ReachEnv(gym.Env):
 
         self.joints = self.design.joint_names
         self.dof = len(self.joints)
+        if self.dof < 1:
+            raise ValueError("design must expose at least one actuated joint")
         self.qadr = np.array([self.model.joint(n).qposadr[0] for n in self.joints], dtype=int)
         self.dadr = np.array([self.model.joint(n).dofadr[0] for n in self.joints], dtype=int)
         ranges = joint_ranges(self.design)
@@ -121,8 +128,6 @@ class ReachEnv(gym.Env):
         return neutral_ee + np.array([0.0, 0.30, 0.10])         # forward fallback
 
     def _obs(self) -> np.ndarray:
-        from prosthesis_rl.rl.rollout import build_obs
-
         return build_obs(self.data.qpos[self.qadr], self.data.qvel[self.dadr],
                          self._ee(), self.target, self.mid, self.half)
 
@@ -145,9 +150,9 @@ class ReachEnv(gym.Env):
         return self._obs(), {}
 
     def step(self, action: np.ndarray):
-        from prosthesis_rl.rl.rollout import map_action
-
         a = np.clip(np.asarray(action, dtype=float), -1.0, 1.0)
+        if a.shape != (self.dof,):
+            raise ValueError(f"action must have shape ({self.dof},), got {a.shape}")
         self.data.ctrl[: self.dof] = map_action(a, self.mid, self.half, self.lo, self.hi)
 
         energy = 0.0
@@ -180,7 +185,7 @@ class ReachEnv(gym.Env):
 
         self._steps += 1
         terminated = success
-        truncated = self._steps >= self.max_steps
+        truncated = self._steps >= self.max_steps and not terminated
         info = {"distance": dist, "success": float(success),
                 "energy": energy, "self_collision": float(self_collision)}
         return self._obs(), float(reward), terminated, truncated, info

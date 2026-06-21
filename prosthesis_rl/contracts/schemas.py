@@ -303,13 +303,20 @@ class PolicyArtifact(_JsonContract):
     path: str = ""
     inputs: list[str] = field(default_factory=lambda: ["observation"])
     outputs: list[str] = field(default_factory=lambda: ["joint_targets"])
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> list[str]:
         problems: list[str] = []
         if not self.kind:
             problems.append("kind is required")
+        elif self.kind not in {"scripted_ik", "rl_checkpoint"}:
+            problems.append(f"unsupported policy kind: {self.kind}")
         if not self.path:
             problems.append("path is required")
+        if not self.inputs:
+            problems.append("at least one policy input is required")
+        if not self.outputs:
+            problems.append("at least one policy output is required")
         return problems
 
 

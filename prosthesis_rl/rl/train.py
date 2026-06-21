@@ -14,12 +14,30 @@ design's DoF, so re-train if the agent changes the kinematic chain.
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 
 from prosthesis_rl.cad.bridge import CadBridge
 from prosthesis_rl.contracts import DesignParams
 
 POLICY_DIR = Path("assets/policies")
+
+
+def _checkpoint_path(out_path: Path) -> Path:
+    return Path(f"{out_path}.zip")
+
+
+def _validate_training_args(timesteps: int, n_envs: int, eval_episodes: int, name: str) -> str:
+    if timesteps < 1:
+        raise ValueError("timesteps must be at least 1")
+    if n_envs < 1:
+        raise ValueError("n_envs must be at least 1")
+    if eval_episodes < 0:
+        raise ValueError("eval_episodes cannot be negative")
+    clean_name = name.removesuffix(".zip")
+    if not clean_name or Path(clean_name).name != clean_name:
+        raise ValueError("name must be a filename, not a path")
+    return clean_name
 
 
 def _make_env_fn(design: DesignParams, mesh_dir, seed: int):
@@ -32,7 +50,7 @@ def _make_env_fn(design: DesignParams, mesh_dir, seed: int):
     return _init
 
 
-def _make_progress_callback(progress_cb, total: int, interval: int = 500):
+def _make_progress_callback(progress_cb, total: int, start: int = 0, interval: int = 500):
     """Return a proper SB3 BaseCallback that fires progress_cb every N steps."""
     from stable_baselines3.common.callbacks import BaseCallback
 
@@ -47,7 +65,7 @@ def _make_progress_callback(progress_cb, total: int, interval: int = 500):
                 progress_cb({
                     "timestep": self.num_timesteps,
                     "mean_reward": mean_rew,
-                    "progress": self.num_timesteps / max(1, total),
+                    "progress": min(1.0, (self.num_timesteps - start) / max(1, total)),
                 })
             return True
 
@@ -64,52 +82,82 @@ def train_reach_policy(
     eval_episodes: int = 20,
     verbose: int = 1,
     progress_cb=None,
+    mesh_dir: str | Path | None = None,
+    output_dir: str | Path = POLICY_DIR,
+    resume_from: str | Path | None = None,
 ) -> dict[str, object]:
     """Train and save a PPO reach policy; return a small training summary."""
+    name = _validate_training_args(timesteps, n_envs, eval_episodes, name)
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
 
     design = design or DesignParams()
     # Skin the env with the same per-link meshes the demo uses, so the policy
     # transfers to the rendered arm without a domain gap.
-    mesh_dir = CadBridge().export_arm(design, name="candidate")
+    mesh_dir = Path(mesh_dir) if mesh_dir is not None else CadBridge().export_arm(
+        design, name=f"{name}_training"
+    )
 
     venv = DummyVecEnv([
         _make_env_fn(design, mesh_dir, seed + i) for i in range(n_envs)
     ])
 
-    model = PPO(
-        "MlpPolicy", venv, seed=seed, verbose=verbose,
-        n_steps=512, batch_size=512, gae_lambda=0.95, gamma=0.99,
-        learning_rate=3e-4, ent_coef=0.0, n_epochs=10,
-        policy_kwargs={"net_arch": [128, 128]},
-    )
+    try:
+        if resume_from is not None:
+            model = PPO.load(str(resume_from), env=venv)
+            start_steps = int(model.num_timesteps)
+        else:
+            rollout_steps = max(8, min(512, math.ceil(timesteps / n_envs)))
+            batch_size = min(512, rollout_steps * n_envs)
+            model = PPO(
+                "MlpPolicy", venv, seed=seed, verbose=verbose,
+                n_steps=rollout_steps, batch_size=batch_size, gae_lambda=0.95, gamma=0.99,
+                learning_rate=3e-4, ent_coef=0.0, n_epochs=10,
+                policy_kwargs={"net_arch": [128, 128]},
+            )
+            start_steps = 0
 
-    cb = _make_progress_callback(progress_cb, timesteps) if progress_cb else None
-    model.learn(total_timesteps=timesteps, progress_bar=False, callback=cb)
+        cb = (
+            _make_progress_callback(progress_cb, timesteps, start=start_steps)
+            if progress_cb else None
+        )
+        model.learn(
+            total_timesteps=timesteps,
+            progress_bar=False,
+            callback=cb,
+            reset_num_timesteps=resume_from is None,
+        )
 
-    POLICY_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = POLICY_DIR / name
-    model.save(out_path)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = output_dir / name
+        model.save(out_path)
+        checkpoint_path = _checkpoint_path(out_path)
 
-    summary = {
-        "policy": str(out_path) + ".zip",
-        "timesteps": timesteps,
-        "dof": design.dof,
-        "joints": design.joint_names,
-        "mesh_dir": str(mesh_dir),
-    }
-    if eval_episodes > 0:
-        summary["eval"] = evaluate_policy_success(out_path, design, mesh_dir,
-                                                   episodes=eval_episodes, seed=seed + 999)
-    venv.close()
-    return summary
+        summary = {
+            "policy": str(checkpoint_path),
+            "timesteps": int(model.num_timesteps),
+            "training_steps": int(model.num_timesteps) - start_steps,
+            "requested_training_steps": timesteps,
+            "dof": design.dof,
+            "joints": design.joint_names,
+            "mesh_dir": str(mesh_dir),
+        }
+        if eval_episodes > 0:
+            summary["eval"] = evaluate_policy_success(
+                out_path, design, mesh_dir, episodes=eval_episodes, seed=seed + 999
+            )
+        return summary
+    finally:
+        venv.close()
 
 
 def evaluate_policy_success(
     policy_path, design: DesignParams, mesh_dir, *, episodes: int = 20, seed: int = 0,
 ) -> dict[str, float]:
     """Roll out the saved policy; report success rate + mean final distance."""
+    if episodes < 1:
+        raise ValueError("episodes must be at least 1")
     import numpy as np
     from stable_baselines3 import PPO
 
@@ -118,16 +166,19 @@ def evaluate_policy_success(
     model = PPO.load(str(policy_path))
     env = ReachEnv(design, mesh_dir=mesh_dir, seed=seed)
     successes, finals = 0, []
-    for ep in range(episodes):
-        obs, _ = env.reset(seed=seed + ep)
-        done = False
-        info = {"distance": 1.0, "success": 0.0}
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, _, term, trunc, info = env.step(action)
-            done = term or trunc
-        successes += int(info["success"])
-        finals.append(info["distance"])
+    try:
+        for ep in range(episodes):
+            obs, _ = env.reset(seed=seed + ep)
+            done = False
+            info = {"distance": 1.0, "success": 0.0}
+            while not done:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, _, term, trunc, info = env.step(action)
+                done = term or trunc
+            successes += int(info["success"])
+            finals.append(info["distance"])
+    finally:
+        env.close()
     return {
         "episodes": episodes,
         "success_rate": successes / episodes,

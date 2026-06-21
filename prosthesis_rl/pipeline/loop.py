@@ -248,6 +248,7 @@ class DesignOptimizationLoop:
                 best_params, best_name, emit,
                 timesteps=self._rl_quick,
                 iteration=0,
+                mesh_dir=best_mesh_dir,
             )
             rl_success = rl_result.get("eval", {}).get("success_rate", 0.0)
 
@@ -265,6 +266,7 @@ class DesignOptimizationLoop:
                     ref_params, ref_name, emit,
                     timesteps=self._rl_final,
                     iteration=1,
+                    mesh_dir=ref_cad.mesh_dir,
                 )
                 if rl_result2.get("eval", {}).get("success_rate", 0.0) > rl_success:
                     best_params  = ref_params
@@ -278,6 +280,8 @@ class DesignOptimizationLoop:
                 best_params, f"{best_name}_final", emit,
                 timesteps=self._rl_final,
                 iteration="final",
+                mesh_dir=best_mesh_dir,
+                resume_from=rl_result.get("policy"),
             )
             rl_result = final_rl
 
@@ -333,21 +337,25 @@ class DesignOptimizationLoop:
         *,
         timesteps: int,
         iteration: int | str,
+        mesh_dir=None,
+        resume_from=None,
     ) -> dict[str, Any]:
-        from prosthesis_rl.rl.train import train_reach_policy
+        from prosthesis_rl.agents.policy import PolicyAgent
 
         def _progress(info: dict) -> None:
             emit.emit(PipelineEvent("rl_step", "rl_loop", {
                 "iteration": iteration,
                 "timestep": info["timestep"],
                 "mean_reward": info.get("mean_reward", 0.0),
-                "progress": info["timestep"] / timesteps,
+                "progress": info.get("progress", 0.0),
             }))
 
-        return train_reach_policy(
-            timesteps,
+        return PolicyAgent().train(
+            params,
+            timesteps=timesteps,
             name=name,
-            design=params,
+            mesh_dir=mesh_dir,
+            resume_from=resume_from,
             n_envs=2 if self.quick_mode else 4,
             eval_episodes=5 if self.quick_mode else 20,
             verbose=0,
@@ -362,13 +370,14 @@ class DesignOptimizationLoop:
             import mujoco
             import numpy as np
 
-            from prosthesis_rl.rl.rollout import load_policy, run_policy_reach
+            from prosthesis_rl.agents.policy import PolicyAgent
+            from prosthesis_rl.rl.rollout import run_policy_reach
             from prosthesis_rl.sim.control import sample_reachable_targets
             from prosthesis_rl.sim.mjcf_builder import build_mjcf
 
             model = mujoco.MjModel.from_xml_string(build_mjcf(params, mesh_dir=mesh_dir), {})
             data  = mujoco.MjData(model)
-            policy = load_policy(rl_result["policy"])
+            policy = PolicyAgent().load(rl_result["policy"], design=params)
             targets = sample_reachable_targets(model, params, n=1, seed=42)
 
             frames: list[dict] = []

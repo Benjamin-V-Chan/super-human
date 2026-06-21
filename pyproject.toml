@@ -15,6 +15,11 @@ cad = [
 sim = [
   "mujoco>=3.1",
 ]
+rl = [
+  "mujoco>=3.1",
+  "gymnasium>=1.0",
+  "stable-baselines3>=2.4",
+]
 cv = [
   "google-genai>=1.0",
   "python-dotenv>=1.0",
