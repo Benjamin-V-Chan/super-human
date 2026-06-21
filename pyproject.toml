@@ -15,6 +15,9 @@ cad = [
 sim = [
   "mujoco>=3.1",
 ]
+cv = [
+  "google-genai>=1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
