@@ -553,6 +553,97 @@ app.post('/api/run-multi-pipeline', (req, res) => {
   streamPipelineEvents(child, res, null)
 })
 
+// ── Clip listing and thumbnails ───────────────────────────────────────────────
+app.get('/api/clips', (_req, res) => {
+  try {
+    const files = fs.readdirSync(CLIP_DIR).filter((f) => /\.(mp4|mov)$/i.test(f))
+    res.json(files.map((f) => ({ name: f, path: `test_vids/${f}` })))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/thumbnail', (req, res) => {
+  const clip = String(req.query.clip || '')
+  const full = path.resolve(REPO_ROOT, clip)
+  if (!clip || !full.startsWith(CLIP_DIR + path.sep) || !fs.existsSync(full)) {
+    return res.status(404).send('Not found')
+  }
+  res.setHeader('Content-Type', 'image/jpeg')
+  const child = spawn('ffmpeg', [
+    '-i', full, '-frames:v', '1', '-q:v', '5', '-f', 'image2', '-vcodec', 'mjpeg', 'pipe:1',
+  ], { stdio: ['ignore', 'pipe', 'ignore'] })
+  child.stdout.pipe(res)
+  child.on('error', () => {
+    if (!res.headersSent) {
+      // 1×1 transparent GIF placeholder when ffmpeg unavailable
+      res.setHeader('Content-Type', 'image/gif')
+      res.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'))
+    }
+  })
+})
+
+// ── Single-clip pipeline entry point (called by pipeline.html dashboard) ──────
+// Accepts { clip, quick } and delegates to run_multi_pipeline.py
+app.post('/api/run', (req, res) => {
+  const { clip, quick = false } = req.body || {}
+  if (!clip) return res.status(400).json({ error: 'clip is required' })
+  const full = path.resolve(REPO_ROOT, clip)
+  if (!full.startsWith(CLIP_DIR + path.sep) || !fs.existsSync(full)) {
+    return res.status(400).json({ error: `Invalid or missing clip path: ${clip}` })
+  }
+
+  openSSE(res)
+  sendSSE(res, { type: 'pipeline_start', clip_paths: [clip], n_clips: 1 })
+
+  const pythonBin = fs.existsSync(path.join(REPO_ROOT, '.venv', 'bin', 'python3'))
+    ? path.join(REPO_ROOT, '.venv', 'bin', 'python3')
+    : (process.env.ARMASAI_PYTHON || 'python3')
+
+  const child = spawn(pythonBin, [MULTI_PIPELINE_SCRIPT], {
+    env: { ...process.env, PYTHONPATH: REPO_ROOT },
+    timeout: 30 * 60 * 1000,
+  })
+  child.stdin.write(JSON.stringify({ clip_paths: [full], quick_mode: !!quick }))
+  child.stdin.end()
+
+  streamPipelineEvents(child, res, null)
+})
+
+// ── MJCF scene serving ────────────────────────────────────────────────────────
+const MJCF_DIR = path.resolve(REPO_ROOT, 'assets', 'mjcf')
+
+app.get('/api/scene', (req, res) => {
+  const name = String(req.query.name || 'default').replace(/[^a-zA-Z0-9_\-]/g, '')
+  let xmlPath = path.resolve(MJCF_DIR, `${name}.xml`)
+  if (!fs.existsSync(xmlPath)) {
+    xmlPath = path.resolve(MJCF_DIR, 'default.xml')
+    if (!fs.existsSync(xmlPath)) return res.status(404).send('Scene not found')
+  }
+  res.setHeader('Content-Type', 'application/xml')
+  res.sendFile(xmlPath)
+})
+
+// ── STL mesh serving ──────────────────────────────────────────────────────────
+const STL_ROOT = path.resolve(REPO_ROOT, 'assets', 'stl')
+
+app.get('/api/mesh', (req, res) => {
+  const name = String(req.query.name || 'default').replace(/[^a-zA-Z0-9_\-]/g, '')
+  const link = String(req.query.link || '').replace(/[^a-zA-Z0-9_\-]/g, '')
+  if (!link) return res.status(400).send('link param required')
+  // Try scene-specific dir first, then default dir
+  for (const dir of [name, 'default']) {
+    const stlPath = path.resolve(STL_ROOT, dir, `${link}.stl`)
+    if (stlPath.startsWith(STL_ROOT) && fs.existsSync(stlPath)) {
+      return res.sendFile(stlPath)
+    }
+  }
+  res.status(404).send('Mesh not found')
+})
+
+// ── Static webdemo (pipeline dashboard, MuJoCo demos) ────────────────────────
+app.use(express.static(path.resolve(__dirname, '../webdemo')))
+
 // ── App listen ────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => console.log(`Armasai server :${PORT}`))

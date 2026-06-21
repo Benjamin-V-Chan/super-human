@@ -804,8 +804,8 @@ async function loadViewerScene(name) {
     // Write MJCF to WASM FS
     mujoco.FS.writeFile("/working/scene.xml", xmlText);
 
-    mjModel = mujoco.Model.load_from_xml("/working/scene.xml");
-    mjData = new mujoco.State(mjModel);
+    mjModel = mujoco.MjModel.loadFromXML("/working/scene.xml");
+    mjData = new mujoco.MjData(mjModel);
     mujoco.mj_forward(mjModel, mjData);
 
     bodies = buildViewerBodies(mjModel);

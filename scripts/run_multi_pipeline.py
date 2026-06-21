@@ -23,7 +23,7 @@ class _StdoutEmitter(Emitter):
 
     def emit(self, event: PipelineEvent) -> None:
         try:
-            line = json.dumps({"type": event.type, "stage": event.stage, **event.data})
+            line = json.dumps({"type": event.type, "stage": event.stage, "data": event.data})
             sys.stdout.write(line + "\n")
             sys.stdout.flush()
         except Exception:
