@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "roles": [
+    {
+      "id": "coordinator",
+      "human_owner": "Vihaan",
+      "mission": "Own contracts, orchestration, task boundaries, integration, and final delivery.",
+      "write_paths": [
+        "prosthesis_rl/contracts/**",
+        "prosthesis_rl/agents/orchestrator.py",
+        "prosthesis_rl/hud/**",
+        "tasks.py"
+      ],
+      "acceptance": [
+        "python3 -m pytest -q",
+        "PYTHONPATH=. python3 scripts/smoke.py"
+      ]
+    },
+    {
+      "id": "perception",
+      "human_owner": "Vihaan",
+      "mission": "Convert a clip into a validated ProblemSpec with provenance and explicit fallback state.",
+      "write_paths": [
+        "prosthesis_rl/agents/perception.py",
+        "prosthesis_rl/cv/**",
+        "tests/test_perception_pipeline.py",
+        "scripts/perception_demo.py"
+      ],
+      "read_only_dependencies": ["prosthesis_rl/contracts/**"],
+      "produces": ["ProblemSpec", "perception provenance"],
+      "acceptance": ["python3 -m pytest -q tests/test_perception_pipeline.py"]
+    },
+    {
+      "id": "design_cad",
+      "human_owner": "Benji",
+      "mission": "Produce valid DesignParams and manufacture the selected design.",
+      "write_paths": [
+        "prosthesis_rl/agents/design.py",
+        "prosthesis_rl/cad/**"
+      ],
+      "read_only_dependencies": ["prosthesis_rl/contracts/**"],
+      "consumes": ["ProblemSpec", "optional SimFeedback"],
+      "produces": ["DesignParams", "validation report", "selected CAD artifact"]
+    },
+    {
+      "id": "simulation",
+      "human_owner": "Nathan",
+      "mission": "Evaluate designs deterministically on ADL tasks and explain the reward.",
+      "write_paths": ["prosthesis_rl/sim/**", "adl/**"],
+      "read_only_dependencies": ["prosthesis_rl/contracts/**"],
+      "consumes": ["ProblemSpec", "DesignParams", "control hints", "seed"],
+      "produces": ["SimFeedback", "reward breakdown", "determinism evidence"]
+    },
+    {
+      "id": "optimization",
+      "human_owner": "Vasi",
+      "mission": "Improve and rank design candidates using verifier feedback and a bounded iteration budget.",
+      "write_paths": ["prosthesis_rl/rl/**"],
+      "read_only_dependencies": [
+        "prosthesis_rl/contracts/**",
+        "prosthesis_rl/agents/design.py",
+        "prosthesis_rl/sim/**"
+      ],
+      "consumes": ["design action surface", "SimFeedback"],
+      "produces": ["ranked candidates", "reward distribution", "optional checkpoint"]
+    },
+    {
+      "id": "viewer_api",
+      "human_owner": "Vihaan",
+      "mission": "Expose the Python pipeline through one API boundary and render contract-backed results.",
+      "write_paths": ["viewer/**"],
+      "read_only_dependencies": ["prosthesis_rl/contracts/**"],
+      "produces": ["viewer build", "API compatibility evidence"]
+    },
+    {
+      "id": "qa_evidence",
+      "human_owner": "shared",
+      "mission": "Verify contracts, determinism, end-to-end behavior, build health, and demo evidence.",
+      "write_paths": ["tests/**", "scripts/smoke.py", "docs/**"],
+      "read_only_dependencies": ["prosthesis_rl/**", "viewer/**", "tasks.py"],
+      "produces": ["test results", "skipped-gate report", "evidence manifest"],
+      "acceptance": [
+        "python3 -m pytest -q",
+        "PYTHONPATH=. python3 scripts/smoke.py",
+        "PYTHONPATH=. python3 scripts/run_loop.py",
+        "npm --prefix viewer run build"
+      ]
+    }
+  ]
+}

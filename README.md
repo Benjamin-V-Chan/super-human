@@ -4,7 +4,7 @@ RL-driven prosthesis design loop for generating, simulating, evaluating, and imp
 
 Prosthesis-RL turns a short patient video into a structured problem statement, proposes a prosthetic-arm design, verifies that design in simulation, improves future designs from the verifier's feedback, and exports the winning design as a printable CAD/STL artifact.
 
-For the detailed product spec, see [docs/PRD.md](docs/PRD.md). For team responsibilities, milestones, and task ownership, see [WORK_SPLIT.md](WORK_SPLIT.md).
+For the detailed product spec, see [docs/PRD.md](docs/PRD.md). For team responsibilities, milestones, and task ownership, see [WORK_SPLIT.md](WORK_SPLIT.md). AI-agent coordination, path ownership, handoffs, and merge gates are defined in [AGENTS.md](AGENTS.md).
 
 ## System Loop
 

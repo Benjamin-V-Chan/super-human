@@ -2,6 +2,10 @@
 
 This is the single source of truth for ownership, task split, milestones, and timeline. The README and PRD describe the project; this file describes who owns what.
 
+AI agents follow [`AGENTS.md`](AGENTS.md). The machine-readable role registry and
+delivery graph live in [`.agents/`](.agents/); they implement this human ownership
+model without replacing it.
+
 Shared contracts are the coordination boundary:
 
 - `ProblemSpec`: task list plus patient constraints.
