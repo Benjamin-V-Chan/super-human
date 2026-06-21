@@ -35,6 +35,6 @@ class ProsthesisLoop:
         if self.emit_spec_sheet:
             print(spec_sheet)
         params, control_hints = self.design.propose(problem)
-        stl_path = self.cad.export_stl(params)
-        return self.verifier.evaluate(problem, params, control_hints, stl_path=stl_path)
+        mesh_dir = self.cad.export_arm(params)
+        return self.verifier.evaluate(problem, params, control_hints, mesh_dir=mesh_dir)
 
