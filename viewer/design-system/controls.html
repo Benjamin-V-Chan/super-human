@@ -1,0 +1,37 @@
+<!-- @dsCard group="Components" name="Buttons & Progress" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ARMASAI · Controls</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg:#0a0a0f; --surface:#111118; --border:#2a2a3a; --accent:#00d4ff; --accent2:#7c3aed; --text:#e8e8f0; --text-muted:#6b6b80; --font:'Inter',sans-serif; --mono:'JetBrains Mono',monospace; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); padding:32px; }
+  .lbl { font-family:var(--mono); font-size:10px; color:var(--text-muted); letter-spacing:.08em; text-transform:uppercase; margin:0 0 14px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .btn { font-family:var(--font); font-size:12.5px; font-weight:500; padding:7px 14px; border-radius:7px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; }
+  .btn.primary { background:linear-gradient(135deg,var(--accent2),var(--accent)); border:none; color:#fff; font-weight:600; }
+  .btn.ghost { background:transparent; }
+  .btn.tiny { padding:5px 10px; font-size:11px; }
+  .btn.dis { opacity:.4; }
+  .progress { position:relative; width:140px; height:24px; border:1px solid var(--border); border-radius:6px; overflow:hidden; display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:11px; background:var(--surface); }
+  .bar { position:absolute; inset:0 auto 0 0; width:66%; background:linear-gradient(90deg,var(--accent2),var(--accent)); opacity:.35; }
+  .progress span { position:relative; z-index:1; }
+</style>
+</head>
+<body>
+  <p class="lbl">Buttons</p>
+  <div class="row">
+    <button class="btn primary">▶ Run pipeline</button>
+    <button class="btn">Reset</button>
+    <button class="btn ghost">Design Studio →</button>
+    <button class="btn tiny">Complete integration →</button>
+    <button class="btn dis">⬇ Export STL</button>
+  </div>
+
+  <p class="lbl" style="margin-top:30px">Progress</p>
+  <div class="progress"><div class="bar"></div><span>66%</span></div>
+</body>
+</html>

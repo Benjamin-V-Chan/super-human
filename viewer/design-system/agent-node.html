@@ -1,0 +1,71 @@
+<!-- @dsCard group="Pipeline" name="Agent Node" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ARMASAI · Agent Node</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg:#0a0a0f; --surface:#111118; --border:#2a2a3a; --accent:#00d4ff; --accent2:#7c3aed; --text:#e8e8f0; --text-muted:#6b6b80; --success:#22c55e; --warning:#f59e0b; --font:'Inter',sans-serif; --mono:'JetBrains Mono',monospace; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); padding:28px; }
+  .row { display:flex; gap:18px; flex-wrap:wrap; }
+  .node { width:210px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .node.running { border-color:var(--accent); box-shadow:0 0 24px rgba(0,212,255,.18); }
+  .node.done { border-color:#1f4a3a; }
+  .node.pending { border-style:dashed; }
+  .top { display:flex; justify-content:space-between; align-items:center; }
+  .icon { font-size:22px; }
+  .dot { width:9px; height:9px; border-radius:50%; }
+  .dot.idle{background:#2a2a3a} .dot.running{background:var(--accent)} .dot.done{background:var(--success)}
+  .name { font-weight:600; font-size:14px; margin-top:8px; }
+  .role { font-size:11.5px; color:var(--accent); }
+  .tech { font-family:var(--mono); font-size:10.5px; color:var(--text-muted); margin-top:4px; }
+  .io { font-family:var(--mono); font-size:10px; margin-top:6px; padding:2px 6px; border-radius:4px; display:inline-block; }
+  .io.in { color:var(--text-muted); } .io.out { color:var(--accent); background:rgba(0,212,255,.08); }
+  .badge { margin-top:8px; font-family:var(--mono); font-size:9.5px; letter-spacing:.06em; color:var(--warning); border:1px solid rgba(245,158,11,.4); background:rgba(245,158,11,.08); border-radius:4px; padding:2px 6px; display:inline-block; }
+  .cap { font-family:var(--mono); font-size:10px; color:var(--text-muted); margin:0 0 6px 2px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div>
+      <div class="cap">idle</div>
+      <div class="node">
+        <div class="top"><span class="icon">👁</span><span class="dot idle"></span></div>
+        <div class="name">Perception Agent</div><div class="role">Vision → task understanding</div>
+        <div class="tech">Gemma Vision · frame sampler</div>
+        <div class="io in">◂ ADL clip</div><br/><div class="io out">ProblemSpec ▸</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap">running</div>
+      <div class="node running">
+        <div class="top"><span class="icon">🦾</span><span class="dot running"></span></div>
+        <div class="name">Design Agent</div><div class="role">Morphology synthesis</div>
+        <div class="tech">Claude Opus · spatial gates</div>
+        <div class="io in">◂ ProblemSpec</div><br/><div class="io out">DesignParams ▸</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap">done</div>
+      <div class="node done">
+        <div class="top"><span class="icon">⬡</span><span class="dot done"></span></div>
+        <div class="name">CAD Builder</div><div class="role">Geometry export</div>
+        <div class="tech">CadBridge · STL / MJCF</div>
+        <div class="io in">◂ DesignParams</div><br/><div class="io out">CAD model (STL) ▸</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap">pending integration</div>
+      <div class="node pending">
+        <div class="top"><span class="icon">🧪</span><span class="dot idle"></span></div>
+        <div class="name">Simulation Agent</div><div class="role">Physics verification</div>
+        <div class="tech">MuJoCo · deterministic</div>
+        <div class="io in">◂ DesignParams</div><br/><div class="io out">EvalResult ▸</div>
+        <div class="badge">PLACEHOLDER · Nathan</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!-- @dsCard group="Foundations" name="Color & Type Tokens" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ARMASAI · Foundations</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg:#0a0a0f; --surface:#111118; --surface2:#1a1a24; --border:#2a2a3a;
+    --accent:#00d4ff; --accent2:#7c3aed; --text:#e8e8f0; --text-muted:#6b6b80;
+    --success:#22c55e; --warning:#f59e0b;
+    --font:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); padding:28px; }
+  h1 { font-size:15px; letter-spacing:.14em; font-weight:700; }
+  .sub { color:var(--text-muted); font-size:12px; margin:2px 0 22px; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .swatch { border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .chip { height:64px; }
+  .meta { padding:8px 10px; font-family:var(--mono); font-size:11px; }
+  .meta .name { color:var(--text); }
+  .meta .val { color:var(--text-muted); }
+  .section { margin-top:26px; font-family:var(--mono); font-size:10px; letter-spacing:.1em; color:var(--accent); text-transform:uppercase; margin-bottom:10px; }
+  .type-row { display:flex; align-items:baseline; gap:14px; padding:8px 0; border-bottom:1px solid var(--border); }
+  .type-row .tag { font-family:var(--mono); font-size:10px; color:var(--text-muted); width:90px; }
+</style>
+</head>
+<body>
+  <h1>⬡ ARMASAI</h1>
+  <div class="sub">Design foundations — multi-agent prosthesis pipeline</div>
+
+  <div class="section">Color</div>
+  <div class="grid">
+    <div class="swatch"><div class="chip" style="background:#0a0a0f"></div><div class="meta"><div class="name">bg</div><div class="val">#0a0a0f</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#111118"></div><div class="meta"><div class="name">surface</div><div class="val">#111118</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#2a2a3a"></div><div class="meta"><div class="name">border</div><div class="val">#2a2a3a</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#00d4ff"></div><div class="meta"><div class="name">accent</div><div class="val">#00d4ff</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#7c3aed"></div><div class="meta"><div class="name">accent2</div><div class="val">#7c3aed</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#22c55e"></div><div class="meta"><div class="name">success</div><div class="val">#22c55e</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#f59e0b"></div><div class="meta"><div class="name">warning</div><div class="val">#f59e0b</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#e8e8f0"></div><div class="meta"><div class="name">text</div><div class="val">#e8e8f0</div></div></div>
+  </div>
+
+  <div class="section">Type</div>
+  <div class="type-row"><span class="tag">Inter 700</span><span style="font-size:22px;font-weight:700">Prosthesis pipeline</span></div>
+  <div class="type-row"><span class="tag">Inter 600</span><span style="font-size:15px;font-weight:600">Agent node title</span></div>
+  <div class="type-row"><span class="tag">Inter 400</span><span style="font-size:13px;color:var(--text-muted)">Body / blurb copy in muted grey</span></div>
+  <div class="type-row"><span class="tag">JetBrains 400</span><span style="font-family:var(--mono);font-size:12px;color:var(--accent)">ProblemSpec → DesignParams</span></div>
+</body>
+</html>

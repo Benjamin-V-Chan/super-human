@@ -1,0 +1,49 @@
+<!-- @dsCard group="CAD" name="Build Checklist & Output" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ARMASAI · CAD Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg:#0a0a0f; --surface:#111118; --border:#2a2a3a; --accent:#00d4ff; --text:#e8e8f0; --text-muted:#6b6b80; --success:#22c55e; --font:'Inter',sans-serif; --mono:'JetBrains Mono',monospace; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); padding:28px; }
+  .panel { width:280px; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; }
+  h3 { font-size:13px; font-weight:600; margin-bottom:12px; letter-spacing:.04em; }
+  ol { list-style:none; }
+  li { display:flex; align-items:center; gap:10px; padding:7px 6px; border-radius:7px; opacity:.5; }
+  li.done { opacity:1; } li.building { opacity:1; background:rgba(0,212,255,.07); }
+  .pd { width:8px; height:8px; border-radius:50%; background:var(--border); flex-shrink:0; }
+  li.done .pd { background:var(--success); } li.building .pd { background:var(--accent); box-shadow:0 0 0 4px rgba(0,212,255,.18); }
+  .pl { font-size:12.5px; } .pn { font-size:10.5px; color:var(--text-muted); font-family:var(--mono); }
+  li div { flex:1; }
+  .ps { font-family:var(--mono); color:var(--accent); } li.done .ps { color:var(--success); }
+  .out { margin-top:12px; border-top:1px solid var(--border); padding-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .or { display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px; color:var(--text-muted); }
+  .or b { color:var(--text); }
+  .json { font-family:var(--mono); font-size:10.5px; line-height:1.55; background:#0c0c12; border:1px solid var(--border); border-radius:8px; padding:10px; margin-top:12px; }
+  .k{color:#7c9cff} .s{color:#6ee7b7} .n{color:#f0a868}
+</style>
+</head>
+<body>
+  <div class="panel">
+    <h3>Build sequence</h3>
+    <ol>
+      <li class="done"><span class="pd"></span><div><div class="pl">Shoulder socket</div><div class="pn">torso mount + flange</div></div><span class="ps">✓</span></li>
+      <li class="done"><span class="pd"></span><div><div class="pl">Upper-arm tube</div><div class="pn">carbon-fiber, 30 cm</div></div><span class="ps">✓</span></li>
+      <li class="building"><span class="pd"></span><div><div class="pl">Elbow joint</div><div class="pn">hinge + stiffness cell</div></div><span class="ps">⚙</span></li>
+      <li><span class="pd"></span><div><div class="pl">Forearm tube</div><div class="pn">carbon-fiber, 26 cm</div></div><span class="ps"></span></li>
+      <li><span class="pd"></span><div><div class="pl">Two-jaw gripper</div><div class="pn">8 cm aperture</div></div><span class="ps"></span></li>
+    </ol>
+    <div class="out">
+      <div class="or"><span>file</span><b>candidate.stl</b></div>
+      <div class="or"><span>parts</span><b>3 / 6</b></div>
+      <div class="or"><span>status</span><b>assembling</b></div>
+    </div>
+    <div class="json"><span class="k">"emits"</span>: <span class="s">"EvalResult"</span>,
+<span class="k">"success_rate"</span>: <span class="n">0.75</span>,
+<span class="k">"mean_reward"</span>: <span class="n">0.42</span></div>
+  </div>
+</body>
+</html>
