@@ -164,7 +164,6 @@ export default function DemoSingle() {
         <div className="demo-flow-label">Ray-Ban clip <span className="arrow">→</span> Gemini <span className="arrow">→</span> design <span className="arrow">→</span> MuJoCo <span className="arrow">→</span> CAD</div>
         <div className="demo-actions">
           <div className="demo-progress"><div className="demo-progress-bar" style={{ width: `${progress}%` }} /><span>{progress}%</span></div>
-          <button className="btn ghost" onClick={() => { window.location.hash = '#studio' }}>Studio →</button>
           <button className="btn" onClick={reset} disabled={!completed && !running}>Reset</button>
           <button className="btn primary" onClick={play} disabled={running}>{running ? '● Running…' : '▶ Run pipeline'}</button>
         </div>
