@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "copy-wasm": "node -e \"require('fs').copyFileSync(require.resolve('@mujoco/mujoco/mujoco.wasm'),'public/mujoco.wasm')\"",
+    "copy-wasm": "node -e \"const fs=require('fs');fs.mkdirSync('public',{recursive:true});fs.copyFileSync(require.resolve('@mujoco/mujoco/mujoco.wasm'),'public/mujoco.wasm')\"",
     "predev": "npm run copy-wasm",
     "preclient": "npm run copy-wasm",
     "prebuild": "npm run copy-wasm",
