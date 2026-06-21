@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import CadAssembly from './CadAssembly.jsx'
 import SpecView from './SpecView.jsx'
-import IntegrationGate from './IntegrationGate.jsx'
 import RayBanUpload from './RayBanUpload.jsx'
 import { extractFrames } from './frames.js'
 import { detectionToProblemSpec, detectionToDesign } from './mapping.js'
 import { PIPELINE, CAD_PARTS, TIMING } from './demoData.js'
+import { downloadStl, postJson } from '../lib/api.js'
 import './demo.css'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -27,12 +27,13 @@ export default function DemoPage() {
   const [revealed, setRevealed] = useState(0)
   const [running, setRunning] = useState(false)
   const [active, setActive] = useState('capture')
-  const [overrides, setOverrides] = useState({})
-  const [gate, setGate] = useState(null)
   const [clip, setClip] = useState(null)
   const [detection, setDetection] = useState(null)
   const [design, setDesign] = useState(null)
   const [evaluation, setEvaluation] = useState(null)
+  const [policyArtifact, setPolicyArtifact] = useState(null)
+  const [cadArtifact, setCadArtifact] = useState(null)
+  const [exporting, setExporting] = useState(false)
   const runId = useRef(0)
 
   const cadParams = design || detectionToDesign(SAMPLE)
@@ -41,7 +42,8 @@ export default function DemoPage() {
   const reset = useCallback(() => {
     runId.current += 1
     setStatus({}); setRevealed(0); setRunning(false)
-    setDetection(null); setDesign(null); setEvaluation(null); setActive('capture')
+    setDetection(null); setDesign(null); setEvaluation(null)
+    setPolicyArtifact(null); setCadArtifact(null); setActive('capture')
   }, [])
 
   // Resolve each stage's output payload from live state.
@@ -55,37 +57,33 @@ export default function DemoPage() {
       case 'perception': return detectionToProblemSpec(detection)
       case 'design': return design
       case 'simulation': return evaluation || { status: 'not run' }
-      case 'policy':
-        return overrides.policy || {
-          kind: 'scripted_ik',
-          path: `policies/${(action || 'adl').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24)}_v1.json`,
-          inputs: ['observation'], outputs: ['joint_targets'], success_rate: 0.81,
-        }
-      case 'cad':
-        return { file: 'candidate.stl', parts: `${revealed}/${CAD_PARTS.length}`,
-          mount_frame: cadParams.mount_frame, dof: cadParams.dof,
-          status: revealed === CAD_PARTS.length ? 'complete' : 'assembling' }
+      case 'policy': return policyArtifact || { status: 'not run' }
+      case 'cad': return cadArtifact || { status: 'not run', parts: `${revealed}/${CAD_PARTS.length}` }
       default: return null
     }
-  }, [clip, detection, design, evaluation, overrides, revealed, cadParams, action])
+  }, [clip, detection, design, evaluation, policyArtifact, cadArtifact, revealed])
 
   const play = useCallback(async () => {
     runId.current += 1
     const myRun = runId.current
     const alive = () => runId.current === myRun
     setStatus({}); setRevealed(0); setRunning(true)
-    setEvaluation(null)
-    let det = detection, des = design
+    setEvaluation(null); setPolicyArtifact(null); setCadArtifact(null)
+    let det = detection, des = design, evalResult = null
 
     for (const stage of PIPELINE) {
       if (!alive()) return
       setActive(stage.key)
       setStatus((s) => ({ ...s, [stage.key]: 'running' }))
 
+      try {
       if (stage.key === 'perception') {
         // Real Gemini analysis of the uploaded clip's frames.
         const t0 = Date.now()
-        if (clip?.url) {
+        if (clip?.serverPath) {
+          det = await postJson('/api/analyze-clip', { clip_path: clip.serverPath })
+          det = { ...det, source: det.source || 'python-perception-agent' }
+        } else if (clip?.url) {
           const frames = await extractFrames(clip.url, 6)
           if (!alive()) return
           if (frames.length) {
@@ -103,27 +101,32 @@ export default function DemoPage() {
         } else {
           det = { ...SAMPLE }
         }
-        des = detectionToDesign(det)
         if (!alive()) return
-        setDetection(det); setDesign(des)
+        setDetection(det)
         await sleep(Math.max(0, 700 - (Date.now() - t0)))
+      } else if (stage.key === 'design') {
+        const baseVisuals = detectionToDesign(det)
+        des = await postJson('/api/derive-design', { problem: detectionToProblemSpec(det) })
+        des = { ...baseVisuals, ...des, source: 'python-design-agent' }
+        if (!alive()) return
+        setDesign(des)
       } else if (stage.key === 'simulation') {
         const problem = detectionToProblemSpec(det)
         const taskId = `${(det?.primary_action || 'adl_task').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 28)}_v1`
-        try {
-          const r = await fetch('/api/evaluate-design', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ problem, design: des, task_id: taskId }),
-          })
-          const result = await r.json()
-          if (!r.ok) throw new Error(result.error || 'evaluation failed')
-          if (!alive()) return
-          setEvaluation(result)
-        } catch (error) {
-          if (!alive()) return
-          setEvaluation({ status: 'error', error: error.message })
-        }
+        evalResult = await postJson('/api/evaluate-design', { problem, design: des, task_id: taskId })
+        if (!alive()) return
+        setEvaluation(evalResult)
+      } else if (stage.key === 'policy') {
+        const name = `${(det?.primary_action || 'adl').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24)}_policy`
+        const artifact = await postJson('/api/build-policy', {
+          problem: detectionToProblemSpec(det), design: des, evaluation: evalResult, name,
+        })
+        if (!alive()) return
+        setPolicyArtifact(artifact)
       } else if (stage.key === 'cad') {
+        const artifact = await postJson('/api/build-cad', { design: des, name: 'candidate' })
+        if (!alive()) return
+        setCadArtifact(artifact)
         for (let p = 1; p <= CAD_PARTS.length; p++) {
           if (!alive()) return
           await sleep(TIMING.cadPerPart)
@@ -132,11 +135,27 @@ export default function DemoPage() {
       } else {
         await sleep(TIMING[stage.key] ?? 1500)
       }
+      } catch (error) {
+        if (!alive()) return
+        setStatus((s) => ({ ...s, [stage.key]: 'error' }))
+        if (stage.key === 'simulation') setEvaluation({ status: 'error', error: error.message })
+        if (stage.key === 'policy') setPolicyArtifact({ status: 'error', error: error.message })
+        if (stage.key === 'cad') setCadArtifact({ status: 'error', error: error.message })
+        setRunning(false)
+        return
+      }
       if (!alive()) return
       setStatus((s) => ({ ...s, [stage.key]: 'done' }))
     }
     setRunning(false)
   }, [clip, detection, design])
+
+  const exportStl = useCallback(async () => {
+    if (!design || exporting) return
+    setExporting(true)
+    try { await downloadStl(design, 'candidate') }
+    finally { setExporting(false) }
+  }, [design, exporting])
 
   useEffect(() => () => { runId.current += 1 }, [])
 
@@ -185,7 +204,7 @@ export default function DemoPage() {
           return (
             <div className="rail-cell" key={stage.key}>
               <button
-                className={`chip ${st} ${stage.status === 'pending' ? 'pending-type' : ''} ${active === stage.key ? 'focus' : ''}`}
+                className={`chip ${st} ${active === stage.key ? 'focus' : ''}`}
                 onClick={() => setActive(stage.key)}
               >
                 <span className="chip-icon">{stage.icon}</span>
@@ -194,9 +213,6 @@ export default function DemoPage() {
                   <span className="chip-emit">{stage.emits}</span>
                 </span>
                 <StatusDot status={st} />
-                {stage.status === 'pending' && (
-                  <span className="chip-badge">{overrides[stage.key] ? 'OP' : 'PH'}</span>
-                )}
               </button>
               {i < PIPELINE.length - 1 && (
                 <Connector active={st === 'done'} flowing={st === 'running' || (st === 'done' && status[PIPELINE[i + 1].key] === 'running')} />
@@ -221,11 +237,6 @@ export default function DemoPage() {
             </div>
             <p className="detail-blurb">{activeStage?.blurb}</p>
             <SpecView data={activeOut} contract={activeStage?.emits} />
-            {activeStage?.status === 'pending' && (
-              <button className="btn tiny" onClick={() => setGate(active)}>
-                {overrides[active] ? 'Edit integration output' : 'Complete integration →'}
-              </button>
-            )}
           </div>
         </section>
 
@@ -249,19 +260,11 @@ export default function DemoPage() {
               })}
             </ol>
             <button className="btn primary block" disabled={revealed < CAD_PARTS.length}
-              onClick={() => alert('STL export → wire to Python CadBridge /api/export-stl')}>⬇ Export STL</button>
+              onClick={exportStl}>{exporting ? 'Exporting…' : '⬇ Export STL'}</button>
           </aside>
         </section>
       </div>
 
-      {gate && (
-        <IntegrationGate
-          stage={PIPELINE.find((s) => s.key === gate)}
-          current={overrides[gate]}
-          onClose={() => setGate(null)}
-          onSave={(data) => { setOverrides((o) => ({ ...o, [gate]: data })); setGate(null) }}
-        />
-      )}
     </div>
   )
 }

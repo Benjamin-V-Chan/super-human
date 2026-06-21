@@ -5,8 +5,6 @@
 // contract it emits, plus a sample payload so the demo can "play" the handoff.
 //
 // `status: 'live'`    → integration is real and tested.
-// `status: 'pending'` → integration not finished; an operator can provide output.
-
 export const PIPELINE = [
   {
     key: 'capture',
@@ -97,21 +95,13 @@ export const PIPELINE = [
     role: 'Controller behavior',
     tech: 'PyTorch · scripted-IK → RL',
     icon: '🎮',
-    status: 'pending',
-    owner: 'Vasi',
+    status: 'live',
     consumes: 'EvalResult + SimSpec',
     emits: 'PolicyArtifact',
     blurb:
       'Ships a scripted/IK controller as a behavior floor, then trains an RL ' +
-      'policy when the reward is stable. Not yet wired — the demo shows the ' +
-      'expected PolicyArtifact so the CAD stage can still complete.',
-    expected: {
-      kind: 'scripted_ik',
-      path: 'policies/reach_bottle_v1.json',
-      inputs: ['observation'],
-      outputs: ['joint_targets'],
-      success_rate: 0.81,
-    },
+      'policy when the reward is stable. The baseline controller is persisted as ' +
+      'a validated PolicyArtifact and passed directly into the CAD handoff.',
   },
   {
     key: 'cad',

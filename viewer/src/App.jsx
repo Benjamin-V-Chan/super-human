@@ -3,7 +3,7 @@ import Viewer3D from './components/Viewer3D.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import ParameterPanel from './components/ParameterPanel.jsx'
 import { DEFAULT_PARAMS } from './lib/defaults.js'
-import { streamDesign, streamChat } from './lib/api.js'
+import { downloadStl, streamDesign, streamChat } from './lib/api.js'
 import './App.css'
 
 export default function App() {
@@ -18,6 +18,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('chat') // 'chat' | 'params'
   const [wireframe, setWireframe] = useState(false)
   const [showDimensions, setShowDimensions] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
   const mergeParams = useCallback((updates) => {
     setParams((prev) => ({ ...prev, ...updates }))
@@ -98,6 +99,16 @@ export default function App() {
     }])
   }
 
+  const handleExport = async (event) => {
+    event.preventDefault()
+    if (exporting) return
+    setExporting(true)
+    try { await downloadStl(params, 'studio_candidate') }
+    catch (error) {
+      setMessages((m) => [...m, { role: 'assistant', content: `Export failed: ${error.message}` }])
+    } finally { setExporting(false) }
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -132,9 +143,9 @@ export default function App() {
           <a
             href="#"
             className="export-btn"
-            onClick={(e) => { e.preventDefault(); alert('STL export: connect to Python CadBridge via /api/export-stl') }}
+            onClick={handleExport}
           >
-            Export STL
+            {exporting ? 'Exporting…' : 'Export STL'}
           </a>
         </div>
       </header>

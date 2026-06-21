@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from typing import Any, Callable
 
-from prosthesis_rl.contracts import DesignParams, PolicyArtifact
+from prosthesis_rl.contracts import DesignParams, PolicyArtifact, ProblemSpec
+from prosthesis_rl.rl.controller import ScriptedIKController
 from prosthesis_rl.rl.rollout import load_policy
 from prosthesis_rl.rl.train import train_reach_policy
 
@@ -20,6 +22,45 @@ class PolicyAgent:
     ) -> None:
         self._trainer = trainer
         self._loader = loader
+
+    def build_baseline(
+        self,
+        problem: ProblemSpec,
+        design: DesignParams,
+        *,
+        name: str,
+        output_dir: str | Path = "assets/policies",
+    ) -> PolicyArtifact:
+        """Persist a runnable scripted-IK policy for immediate, reliable use."""
+
+        safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)
+        safe_name = safe_name.strip("_")[:64]
+        if not safe_name:
+            raise ValueError("policy name is required")
+        path = Path(output_dir) / f"{safe_name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        controls = ScriptedIKController().controls_for(problem, design)
+        payload = {
+            "kind": "scripted_ik",
+            "controller": "prosthesis_rl.sim.control.ReachController",
+            "controls": controls,
+            "dof": design.dof,
+            "joints": design.joint_names,
+        }
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        artifact = PolicyArtifact(
+            kind="scripted_ik",
+            path=str(path),
+            metadata={
+                "dof": design.dof,
+                "joints": design.joint_names,
+                "controls": controls,
+            },
+        )
+        errors = artifact.validate()
+        if errors:
+            raise ValueError(f"invalid policy artifact: {errors}")
+        return artifact
 
     def train(
         self,

@@ -186,6 +186,7 @@ assets/stl/*.stl
 assets/stl/*/
 # Scratch/smoke RL policies (keep deliberately-trained ones e.g. reach_ppo.zip)
 assets/policies/*_smoke.zip
+assets/policies/*.json
 
 # Recon pipeline outputs (heavy / machine-specific): keep code + room.xml, drop binaries
 scripts/recon/frames/
