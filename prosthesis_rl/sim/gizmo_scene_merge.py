@@ -35,7 +35,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from prosthesis_rl.contracts import DesignParams, ScenarioSpec
-from prosthesis_rl.sim.gizmo_asset import waypoint_markers
+from prosthesis_rl.sim.gizmo_asset import inject_objects, waypoint_markers
 from prosthesis_rl.sim.mjcf_builder import build_mjcf
 
 # Top-level scene sections we deliberately DROP when merging into the arm env
@@ -70,6 +70,18 @@ def inject_gizmo_scene(
     swb = scene.find("worldbody")
     if sasset is None or swb is None:
         return env_xml  # not a scene we understand — leave the arm env untouched
+
+    # Carry the Gizmo compiler's mass/inertia safety bounds onto the env compiler:
+    # Gizmo scenes have decorative bodies with ~zero mass + a joint that only compile
+    # because Gizmo sets boundmass/boundinertia/balanceinertia. The env compiler wins
+    # the merge, so without these the merged model errors ("mass ... must be > 0").
+    scompiler, ecompiler = scene.find("compiler"), env.find("compiler")
+    if ecompiler is not None:
+        ecompiler.set("balanceinertia", "true")
+        ecompiler.set("boundmass",
+                      (scompiler.get("boundmass") if scompiler is not None else None) or "1e-6")
+        ecompiler.set("boundinertia",
+                      (scompiler.get("boundinertia") if scompiler is not None else None) or "1e-8")
 
     mat_rgba = {m.get("name"): m.get("rgba")
                 for m in sasset.findall("material") if m.get("rgba")}
@@ -214,14 +226,60 @@ def align_offset(scene_xml_path: str | Path, scenario, *, front: float = 0.8
     return (0.0, 0.0, 0.0)
 
 
+def room_center_offset(scene_xml_path: str | Path, scenario) -> tuple[float, float, float]:
+    """Offset that drops the arm into the centre of the scene's floor (x/y; z kept).
+
+    For a scene used as an *environment* (a room/house) rather than the task object,
+    centre the arm on the floor body so it stands inside the room with the walls
+    around it."""
+    mx, my, _ = scenario.mount_pos
+    # Use MuJoCo's computed geom AABB to find the floor's true TOP surface (Gizmo
+    # floors are thick boxes/meshes): centre the arm on the floor (x/y) and drop the
+    # room so the floor's TOP sits at z=0 — otherwise a thick floor swallows objects
+    # resting on it. Falls back to the floor body's origin if anything goes wrong.
+    try:
+        import mujoco
+        m = mujoco.MjModel.from_xml_path(str(scene_xml_path))
+        d = mujoco.MjData(m)
+        mujoco.mj_forward(m, d)
+        for g in range(m.ngeom):
+            if "floor" in (m.body(m.geom_bodyid[g]).name or "").lower():
+                cx, cy, cz = (float(x) for x in d.geom_xpos[g])
+                ab = m.geom_aabb[g]  # local [cx,cy,cz, hx,hy,hz]
+                top = cz + float(ab[2]) + float(ab[5])
+                return (mx - cx, my - cy, -top)
+    except Exception:
+        pass
+    root = ET.parse(str(scene_xml_path)).getroot()
+    wb = root.find("worldbody")
+    fx = fy = fz = 0.0
+    if wb is not None:
+        floor = next((b for b in wb.findall("body")
+                      if "floor" in (b.get("name") or "").lower()), None)
+        if floor is not None:
+            fx, fy, fz = _vec(floor.get("pos", "0 0 0"))[:3]
+    return (mx - fx, my - fy, -fz)
+
+
 def publish_merged_scene(arm_xml_path: str | Path, scene_xml_path: str | Path,
-                         scenario, out_path: str | Path, *, front: float = 0.8) -> Path:
+                         scenario, out_path: str | Path, *, center: bool = True,
+                         front: float = 0.8) -> Path:
     """Write `out_path` = the web arm scene with the Gizmo scene + waypoint markers
     merged in, aligned to the task. Atomic (tmp + rename) so a viewer polling the
     file never reads a half-written scene. Used by both train_live.py (live PPO in
-    the scene) and scene_server.py (static scene viewer)."""
+    the scene) and scene_server.py (static scene viewer).
+
+    Two modes:
+      * **room** (`center=True`, default) — the Gizmo scene is the *environment*
+        (a room/house): centre the arm in it and drop it onto z=0. The task objects
+        (e.g. the shoe) are expected to already be in `arm_xml` (write_web_scene
+        injects the decimated shoe), so they are NOT injected here.
+      * **object** (`center=False`) — the Gizmo scene *is* the task object (a
+        cabinet/table): align it to where the arm reaches.
+    """
     arm_xml = Path(arm_xml_path).read_text()
-    offset = align_offset(scene_xml_path, scenario, front=front)
+    offset = (room_center_offset(scene_xml_path, scenario) if center
+              else align_offset(scene_xml_path, scenario, front=front))
     merged = inject_gizmo_scene(arm_xml, scene_xml_path, offset=offset)
     merged = merged.replace("</worldbody>",
                             waypoint_markers(scenario.waypoints) + "\n</worldbody>", 1)

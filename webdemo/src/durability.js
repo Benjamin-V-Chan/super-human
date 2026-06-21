@@ -391,6 +391,7 @@ function buildDom(root) {
         <div><label>Uses per day</label><input id="dur-usage" type="number" min="1" max="5000" step="10" value="300" /></div>
       </div>
       <div class="dur-chart"><div class="ct">Stress amplitude vs. endurance limit (MPa)</div><canvas id="dur-chart-stress" height="140"></canvas></div>
+      <div class="dur-chart"><div class="ct" id="dur-torque-title">Joint torque over the motion (N·m)</div><canvas id="dur-chart-torque" height="150"></canvas><div class="dur-legend" id="dur-torque-legend"></div></div>
       <h3 id="dur-recs-title">Recommended actions</h3>
       <div id="dur-recs"></div>
     </div>`;
@@ -401,6 +402,9 @@ function buildDom(root) {
     "material",
     "usage",
     "chart-stress",
+    "chart-torque",
+    "torque-title",
+    "torque-legend",
     "recs",
     "recs-title",
   ]) {
@@ -455,6 +459,7 @@ function render() {
   const plan = recommend(state, MATS);
   renderRecs(plan);
   drawStress(rows, mat);
+  drawTorque(worst);
 }
 
 function renderRecs(plan) {
@@ -563,6 +568,98 @@ function drawStress(rows, mat) {
     refLine: mat.endurance_limit_mpa,
     refLabel: `endurance ${mat.endurance_limit_mpa} MPa`,
   });
+}
+
+// Torque-over-time line chart for the limiting task's most-loaded joint.
+function drawTorque(row) {
+  const cv = els["chart-torque"];
+  const trace = (row && row.torque_trace) || [];
+  els["torque-title"].textContent = row
+    ? `Joint torque over the motion — ${row.task_id} · ${row.critical_joint} (N·m)`
+    : "Joint torque over the motion (N·m)";
+  const { ctx, W, H } = fitCanvas(cv);
+  ctx.clearRect(0, 0, W, H);
+  if (trace.length < 2) {
+    ctx.fillStyle = "#7d93a3";
+    ctx.font = "10px -apple-system, Arial";
+    ctx.fillText("No torque trace in report.", 10, H / 2);
+    els["torque-legend"].textContent = "";
+    return;
+  }
+  const padL = 36,
+    padR = 8,
+    padT = 10,
+    padB = 18;
+  let vmin = Infinity,
+    vmax = -Infinity;
+  for (const v of trace) {
+    vmin = Math.min(vmin, v);
+    vmax = Math.max(vmax, v);
+  }
+  // Pad the range a touch and always include zero so sign is readable.
+  vmin = Math.min(vmin, 0);
+  vmax = Math.max(vmax, 0);
+  const span = vmax - vmin || 1;
+  vmax += span * 0.08;
+  vmin -= span * 0.08;
+  const n = trace.length;
+  const sx = (i) => padL + (i / (n - 1)) * (W - padL - padR);
+  const sy = (v) => padT + (1 - (v - vmin) / (vmax - vmin)) * (H - padT - padB);
+  // axes
+  ctx.strokeStyle = "#2a3742";
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, H - padB);
+  ctx.lineTo(W - padR, H - padB);
+  ctx.stroke();
+  // zero line
+  ctx.strokeStyle = "#3a4854";
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(padL, sy(0));
+  ctx.lineTo(W - padR, sy(0));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // y labels
+  ctx.fillStyle = "#7d93a3";
+  ctx.font = "8px -apple-system, Arial";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(vmax.toFixed(0), padL - 3, sy(vmax));
+  ctx.fillText("0", padL - 3, sy(0));
+  ctx.fillText(vmin.toFixed(0), padL - 3, sy(vmin));
+  // filled area under the curve
+  ctx.beginPath();
+  ctx.moveTo(sx(0), sy(0));
+  for (let i = 0; i < n; i++) ctx.lineTo(sx(i), sy(trace[i]));
+  ctx.lineTo(sx(n - 1), sy(0));
+  ctx.closePath();
+  ctx.fillStyle = "rgba(111,230,160,0.12)";
+  ctx.fill();
+  // the torque line
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = sx(i),
+      y = sy(trace[i]);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.strokeStyle = "#6fe6a0";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  // mark the peak
+  let pi = 0;
+  for (let i = 1; i < n; i++)
+    if (Math.abs(trace[i]) > Math.abs(trace[pi])) pi = i;
+  ctx.fillStyle = "#ef6f6f";
+  ctx.beginPath();
+  ctx.arc(sx(pi), sy(trace[pi]), 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  els["torque-legend"].textContent = `peak |τ| ${Math.abs(trace[pi]).toFixed(
+    1,
+  )} N·m · span ${(vmax - vmin).toFixed(0)} N·m · ${
+    row.steps || n
+  } steps (${n} sampled) — x-axis = time through the motion`;
 }
 
 // ── public entry ─────────────────────────────────────────────────────────────

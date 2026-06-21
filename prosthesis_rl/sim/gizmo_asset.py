@@ -54,7 +54,7 @@ def _fallback_body(obj: SceneObject, *, collide: bool = False) -> str:
     phys = ('friction="1 0.05 0.001" density="400"'
             if collide else 'contype="0" conaffinity="0" group="2"')
     return (
-        f'    <body name="obj_{obj.name}" pos="{_fmt(*obj.pos)}">\n'
+        f'    <body name="obj_{obj.name}" pos="{_fmt(*obj.pos)}" euler="{_fmt(*obj.euler)}">\n'
         f'      <geom name="obj_{obj.name}_geom" type="box" '
         f'size="{_fmt(hx, hy, hz)}" rgba="{_fmt(*obj.rgba)}" {phys}/>\n'
         f'    </body>'
@@ -82,36 +82,58 @@ def _gizmo_object(obj: SceneObject) -> tuple[str, str] | None:
     except (ET.ParseError, OSError):
         return None
 
-    # Merge <asset>, rewriting mesh/texture file paths to absolute. Drop the
-    # export's own skybox texture (the env already has one; two skyboxes won't
-    # compile) and the materials/textures attached only to it.
-    asset_root = model_path.parent
-    asset_parts: list[str] = []
+    # Merge <asset>, rewriting mesh/texture file paths to absolute and **namespacing
+    # every asset name** with the object slug. Gizmo exports reuse generic names
+    # (mat_0, bake_…) so without a prefix two Gizmo exports (e.g. a room + a shoe)
+    # collide on compile. Drop the export's own skybox texture (the env has one).
+    prefix = f"{obj.name}__"
+    name_map: dict[str, str] = {}
+    asset_els: list = []
     for asset in root.findall("asset"):
         for el in list(asset):
-            if el.tag == "texture" and el.get("type") == "skybox":
-                continue
-            f = el.get("file")
-            if f and not Path(f).is_absolute():
-                el.set("file", str((asset_root / f).resolve()))
-            asset_parts.append("    " + ET.tostring(el, encoding="unicode").strip())
+            if el.tag == "texture":
+                continue  # drop ALL textures: the web FS has no PNGs; flat material rgba is used
+            nm = el.get("name")
+            if nm is not None:
+                name_map[nm] = prefix + nm
+            asset_els.append(el)
+    asset_parts: list[str] = []
+    for el in asset_els:
+        nm = el.get("name")
+        if nm in name_map:
+            el.set("name", name_map[nm])
+        if el.tag == "material":  # textures dropped -> strip refs, keep flat rgba
+            el.attrib.pop("texture", None)
+            for layer in el.findall("layer"):
+                el.remove(layer)
+        asset_parts.append("    " + ET.tostring(el, encoding="unicode").strip())
 
     # Pull bodies/geoms out of <worldbody>, dropping world scaffolding (lights,
-    # floor planes, cameras) so only the object itself is injected.
+    # floor planes, cameras) so only the object itself is injected. Remap each
+    # geom's material/mesh reference to the namespaced asset names.
     wb = root.find("worldbody")
     if wb is None:
         return None
     inner: list[str] = []
+    n_geoms = 0
     for el in list(wb):
         if el.tag in {"light", "camera"}:
             continue
         if el.tag == "geom" and el.get("type") == "plane":
             continue
+        geoms = list(el.iter("geom"))
+        n_geoms += len(geoms)
+        for g in geoms:
+            for attr in ("material", "mesh"):
+                if g.get(attr) in name_map:
+                    g.set(attr, name_map[g.get(attr)])
         inner.append("      " + ET.tostring(el, encoding="unicode").strip())
-    if not inner:
+    # No actual geometry (e.g. a cancelled/placeholder Gizmo asset = an empty body)
+    # -> fall back to the coloured marker box so the object is never invisible.
+    if not inner or n_geoms == 0:
         return None
     body = (
-        f'    <body name="obj_{obj.name}" pos="{_fmt(*obj.pos)}">\n'
+        f'    <body name="obj_{obj.name}" pos="{_fmt(*obj.pos)}" euler="{_fmt(*obj.euler)}">\n'
         + "\n".join(inner)
         + "\n    </body>"
     )
