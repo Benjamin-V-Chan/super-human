@@ -6,6 +6,7 @@ import { extractFrames } from './frames.js'
 import { detectionToProblemSpec, detectionToDesign } from './mapping.js'
 import { PIPELINE, CAD_PARTS, TIMING } from './demoData.js'
 import { downloadStl, postJson } from '../lib/api.js'
+import { evaluateDesign } from '../sim/mujocoEval.js'
 import './demo.css'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -111,9 +112,9 @@ export default function DemoPage() {
         if (!alive()) return
         setDesign(des)
       } else if (stage.key === 'simulation') {
-        const problem = detectionToProblemSpec(det)
         const taskId = `${(det?.primary_action || 'adl_task').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 28)}_v1`
-        evalResult = await postJson('/api/evaluate-design', { problem, design: des, task_id: taskId })
+        // Run the eval in-browser via MuJoCo WASM (Vercel-friendly; no native mujoco).
+        evalResult = await evaluateDesign(des, taskId)
         if (!alive()) return
         setEvaluation(evalResult)
       } else if (stage.key === 'policy') {

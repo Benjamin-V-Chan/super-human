@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "copy-wasm": "node -e \"require('fs').copyFileSync(require.resolve('@mujoco/mujoco/mujoco.wasm'),'public/mujoco.wasm')\"",
+    "predev": "npm run copy-wasm",
+    "preclient": "npm run copy-wasm",
+    "prebuild": "npm run copy-wasm",
     "dev": "concurrently \"node server.js\" \"vite\"",
     "client": "vite",
     "server": "node server.js",
@@ -13,6 +17,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@google/genai": "^2.9.0",
+    "@mujoco/mujoco": "^3.9.0",
     "@react-three/drei": "^9.117.3",
     "@react-three/fiber": "^8.17.10",
     "cors": "^2.8.5",
