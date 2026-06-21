@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from prosthesis_rl.agents.design import DesignAgent
 from prosthesis_rl.agents.perception import PerceptionAgent
@@ -29,12 +30,32 @@ class ProsthesisLoop:
 
     def run_once(self, clip_path: str | Path) -> SimFeedback:
         problem = self.perception.infer_problem(clip_path)
-        # Perception -> Design handoff: the formatted core-spec sheet the design
-        # agent optimizes around.
         spec_sheet = format_spec_sheet(problem)
         if self.emit_spec_sheet:
             print(spec_sheet)
         params, control_hints = self.design.propose(problem)
         mesh_dir = self.cad.export_arm(params)
         return self.verifier.evaluate(problem, params, control_hints, mesh_dir=mesh_dir)
+
+    def run_optimized(
+        self,
+        clip_path: str | Path,
+        emit=None,
+        quick_mode: bool = False,
+    ) -> dict[str, Any]:
+        """Full iterative CAD↔sim RL feedback loop with SSE streaming.
+
+        Args:
+            clip_path: path to ADL video clip
+            emit: Emitter instance for SSE streaming (created if None)
+            quick_mode: reduce seeds/timesteps for fast demo
+
+        Returns result dict with best_params, stats, trajectory, rl_result.
+        """
+        from prosthesis_rl.pipeline.events import Emitter
+        from prosthesis_rl.pipeline.loop import DesignOptimizationLoop
+
+        emitter = emit or Emitter()
+        loop = DesignOptimizationLoop(quick_mode=quick_mode)
+        return loop.run(clip_path, emitter)
 
