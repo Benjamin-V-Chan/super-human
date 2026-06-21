@@ -118,9 +118,6 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
-          <div className="lp-problem-img">
-            <ImgSlot src="/website-images/problem.jpg" label="daily-task photo" />
-          </div>
         </div>
       </section>
 
@@ -198,9 +195,6 @@ export default function LandingPage() {
               <div className="lp-contract-name">Reward</div>
               <div className="lp-contract-desc">A single deterministic score from the physics verifier, per task.</div>
             </div>
-          </div>
-          <div style={{ marginTop: 40 }}>
-            <ImgSlot src="/website-images/pipeline.jpg" label="pipeline / result image" className="tall" />
           </div>
         </div>
       </section>
