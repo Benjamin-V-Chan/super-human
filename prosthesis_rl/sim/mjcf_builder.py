@@ -112,6 +112,7 @@ def build_mjcf(
     add_floor: bool = True,
     add_human: bool = True,
     human_side: str = "left",
+    human_collide: bool = False,
     mesh_dir: str | Path | None = None,
     name: str = "prosthesis_env",
 ) -> str:
@@ -119,8 +120,9 @@ def build_mjcf(
 
     mount_pos:  world pose of the fixed shoulder bracket (a person's shoulder).
     target_pos: world pose of the reach-target marker (the ADL goal point).
-    add_human:  add a decorative seated wearer whose `human_side` shoulder is bare
-                at the mount (visual-only, so physics/metrics are unaffected).
+    add_human:  add a seated wearer whose `human_side` shoulder is bare at the mount.
+    human_collide: make the wearer solid so the arm can't phase through the body
+                (default False keeps the original visual-only, physics-neutral wearer).
     mesh_dir:   cad.bridge export_arm() dir; skins each link with its STL.
     """
     del scene  # v1 demo ignores scene perturbations; room is injected separately
@@ -147,7 +149,7 @@ def build_mjcf(
     <body name="mount" pos="{_fmt(*mount_pos)}">
       <geom name="mount_geom" type="box" size="0.04 0.04 0.04" rgba="0.3 0.3 0.35 1" density="{density}"/>
       {body_tree}
-    </body>{_human(mount_pos, human_side) if add_human else ""}"""
+    </body>{_human(mount_pos, human_side, collide=human_collide) if add_human else ""}"""
 
     actuators = "\n    ".join(
         f'<position name="act_{j.name}" joint="{j.name}" '
@@ -160,6 +162,13 @@ def build_mjcf(
     excludes = f'<exclude body1="mount" body2="{links[0].name}"/>'
     for a, b in zip(links, links[1:]):
         excludes += f'\n    <exclude body1="{a.name}" body2="{b.name}"/>'
+    # When the wearer is solid, the proximal arm (mount + first link) shares the
+    # shoulder volume, so exclude it from the body to avoid a start-pose self-jam.
+    # The distal links (forearm/gripper) — the ones that visibly phased through —
+    # still collide and get blocked.
+    if add_human and human_collide:
+        excludes += '\n    <exclude body1="mount" body2="human"/>'
+        excludes += f'\n    <exclude body1="{links[0].name}" body2="human"/>'
 
     return f"""<mujoco model="{name}">
   <compiler angle="radian" autolimits="true"/>
@@ -207,56 +216,70 @@ _PANTS = "0.20 0.22 0.28 1"
 _SEAT = "0.34 0.30 0.27 1"
 
 
-def _vgeom(body: str) -> str:
-    """A geom line carrying the shared visual-only attributes, indented for a body."""
-    return f'      <geom {body} contype="0" conaffinity="0" group="2"/>'
+def _vgeom(body: str, collide: bool = False) -> str:
+    """A body geom line. Visual-only by default; `collide` makes it block the arm.
+
+    Collidable wearer geoms keep group 2 (still rendered) but get real
+    contype/conaffinity so the prosthesis physically cannot pass through the torso,
+    lap, or legs. All wearer geoms live in the single `human` body, so MuJoCo
+    auto-excludes their mutual contacts — only arm↔wearer contacts are generated.
+    """
+    cc = 'contype="1" conaffinity="1"' if collide else 'contype="0" conaffinity="0"'
+    return f'      <geom {body} {cc} group="2"/>'
 
 
-def _cap(p1, p2, size: float, rgba: str) -> str:
+def _cap(p1, p2, size: float, rgba: str, collide: bool = False) -> str:
     return _vgeom(f'type="capsule" fromto="{_fmt(*p1, *p2)}" '
-                  f'size="{size:.4g}" rgba="{rgba}"')
+                  f'size="{size:.4g}" rgba="{rgba}"', collide)
 
 
-def _sph(p, size: float, rgba: str) -> str:
-    return _vgeom(f'type="sphere" pos="{_fmt(*p)}" size="{size:.4g}" rgba="{rgba}"')
+def _sph(p, size: float, rgba: str, collide: bool = False) -> str:
+    return _vgeom(f'type="sphere" pos="{_fmt(*p)}" size="{size:.4g}" rgba="{rgba}"', collide)
 
 
-def _box(p, half, rgba: str) -> str:
-    return _vgeom(f'type="box" pos="{_fmt(*p)}" size="{_fmt(*half)}" rgba="{rgba}"')
+def _box(p, half, rgba: str, collide: bool = False) -> str:
+    return _vgeom(f'type="box" pos="{_fmt(*p)}" size="{_fmt(*half)}" rgba="{rgba}"', collide)
 
 
 def _human(mount_pos: tuple[float, float, float], side: str = "left",
-           shoulder_half: float = 0.18) -> str:
-    """Seated capsule human with the `side` shoulder bare for the prosthesis."""
+           shoulder_half: float = 0.26, collide: bool = False) -> str:
+    """Seated capsule human with the `side` shoulder bare for the prosthesis.
+
+    With `collide=True` the wearer's mass (torso, head, lap, legs, intact arm) is
+    solid so the prosthesis cannot phase through it. The bare shoulder-line capsule
+    and the stool stay non-colliding: the shoulder is the arm's own attachment
+    (it would self-jam at the mount) and the stool is decorative ground furniture.
+    """
     mx, my, mz = mount_pos
     s = 1.0 if side == "left" else -1.0   # +x toward the spine from the bare shoulder
     cx = mx + s * shoulder_half           # spine / body centerline
     rsx = mx + s * 2 * shoulder_half      # remaining (intact) shoulder
     hip = 0.47                            # seat height
+    c = collide
     geoms = [
-        # shoulder line + torso (shirt)
-        _cap((mx, my, mz), (rsx, my, mz), 0.05, _SHIRT),
-        _cap((cx, my, hip + 0.02), (cx, my, mz + 0.01), 0.12, _SHIRT),
+        # shoulder line (attachment — never collide) + torso (shirt)
+        _cap((mx, my, mz), (rsx, my, mz), 0.05, _SHIRT, collide=False),
+        _cap((cx, my, hip + 0.02), (cx, my, mz + 0.01), 0.12, _SHIRT, collide=c),
         # neck + head (skin)
-        _cap((cx, my, mz + 0.02), (cx, my, mz + 0.09), 0.045, _SKIN),
-        _sph((cx, my, mz + 0.21), 0.105, _SKIN),
+        _cap((cx, my, mz + 0.02), (cx, my, mz + 0.09), 0.045, _SKIN, collide=c),
+        _sph((cx, my, mz + 0.21), 0.105, _SKIN, collide=c),
         # remaining arm: upper -> fore -> hand, resting forward in the lap (skin)
-        _cap((rsx, my, mz), (rsx + s * 0.04, my + 0.10, mz - 0.28), 0.05, _SKIN),
+        _cap((rsx, my, mz), (rsx + s * 0.04, my + 0.10, mz - 0.28), 0.05, _SKIN, collide=c),
         _cap((rsx + s * 0.04, my + 0.10, mz - 0.28),
-             (rsx - s * 0.02, my + 0.30, hip + 0.10), 0.045, _SKIN),
-        _sph((rsx - s * 0.02, my + 0.30, hip + 0.10), 0.05, _SKIN),
+             (rsx - s * 0.02, my + 0.30, hip + 0.10), 0.045, _SKIN, collide=c),
+        _sph((rsx - s * 0.02, my + 0.30, hip + 0.10), 0.05, _SKIN, collide=c),
         # pelvis (pants)
-        _cap((cx - 0.10, my, hip), (cx + 0.10, my, hip), 0.10, _PANTS),
+        _cap((cx - 0.10, my, hip), (cx + 0.10, my, hip), 0.10, _PANTS, collide=c),
         # thighs forward to the knees, then shins down to the floor (pants)
-        _cap((cx - 0.09, my, hip), (cx - 0.09, my + 0.38, hip - 0.02), 0.07, _PANTS),
-        _cap((cx + 0.09, my, hip), (cx + 0.09, my + 0.38, hip - 0.02), 0.07, _PANTS),
-        _cap((cx - 0.09, my + 0.38, hip - 0.02), (cx - 0.09, my + 0.40, 0.07), 0.055, _PANTS),
-        _cap((cx + 0.09, my + 0.38, hip - 0.02), (cx + 0.09, my + 0.40, 0.07), 0.055, _PANTS),
+        _cap((cx - 0.09, my, hip), (cx - 0.09, my + 0.38, hip - 0.02), 0.07, _PANTS, collide=c),
+        _cap((cx + 0.09, my, hip), (cx + 0.09, my + 0.38, hip - 0.02), 0.07, _PANTS, collide=c),
+        _cap((cx - 0.09, my + 0.38, hip - 0.02), (cx - 0.09, my + 0.40, 0.07), 0.055, _PANTS, collide=c),
+        _cap((cx + 0.09, my + 0.38, hip - 0.02), (cx + 0.09, my + 0.40, 0.07), 0.055, _PANTS, collide=c),
         # feet (skin)
-        _cap((cx - 0.09, my + 0.40, 0.05), (cx - 0.09, my + 0.52, 0.04), 0.04, _SKIN),
-        _cap((cx + 0.09, my + 0.40, 0.05), (cx + 0.09, my + 0.52, 0.04), 0.04, _SKIN),
-        # solid stool to the floor
-        _box((cx, my, 0.19), (0.22, 0.20, 0.19), _SEAT),
+        _cap((cx - 0.09, my + 0.40, 0.05), (cx - 0.09, my + 0.52, 0.04), 0.04, _SKIN, collide=c),
+        _cap((cx + 0.09, my + 0.40, 0.05), (cx + 0.09, my + 0.52, 0.04), 0.04, _SKIN, collide=c),
+        # solid stool to the floor (decorative — never collide)
+        _box((cx, my, 0.19), (0.22, 0.20, 0.19), _SEAT, collide=False),
     ]
     return ('\n    <body name="human" pos="0 0 0">\n'
             + "\n".join(geoms)

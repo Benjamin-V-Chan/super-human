@@ -1,3 +1,10 @@
+from prosthesis_rl.contracts.scenario import (
+    DEFAULT_POSTURE,
+    POSTURE_MOUNTS,
+    SceneObject,
+    ScenarioSpec,
+    TaskWaypoint,
+)
 from prosthesis_rl.contracts.schemas import (
     Constraints,
     DesignParams,
@@ -17,17 +24,22 @@ from prosthesis_rl.contracts.schemas import (
 
 __all__ = [
     "Constraints",
+    "DEFAULT_POSTURE",
     "DesignParams",
     "EvalResult",
     "JointDef",
     "LinkDef",
     "OrchestrationAttempt",
     "OrchestrationResult",
+    "POSTURE_MOUNTS",
     "PolicyArtifact",
     "ProblemSpec",
     "RewardBreakdown",
+    "SceneObject",
+    "ScenarioSpec",
     "SimFeedback",
     "SimSpec",
     "TaskSpec",
+    "TaskWaypoint",
     "default_arm_chain",
 ]

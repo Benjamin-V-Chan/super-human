@@ -134,16 +134,38 @@ def _dig(obj, *names: str):
 # --------------------------------------------------------------------------- #
 # Pipeline: generate -> poll -> export -> unpack.                             #
 # --------------------------------------------------------------------------- #
-def generate_asset(key: str, prompt: str, *, pipeline: str | None, persist: bool, **kw) -> str:
-    """POST /v1/assets -> job_id."""
-    body = {"prompt": prompt, "persist": persist}
+def create_scene(key: str, prompt: str, *, cancel_job: bool = True, **kw) -> str:
+    """POST /v1/scenes -> scene_id (the container an asset job must be fired into).
+
+    /v1/assets needs a scene_id and won't auto-create one. The scene comes back
+    with its own generation job; firing an asset into a still-generating scene
+    deadlocks both, so by default we cancel the scene job immediately and keep the
+    (now-idle) scene purely as the asset's container.
+    """
+    payload = _json("POST", "/v1/scenes", key, body={"prompt": prompt}, **kw)
+    scene_id = _dig(payload, "scene_id", "sceneId", "id")
+    if not scene_id:
+        raise SystemExit(f"no scene_id in /v1/scenes response: {payload}")
+    job_id = _dig(payload, "job_id", "jobId")
+    if cancel_job and job_id:
+        _request("POST", f"/v1/jobs/{job_id}/cancel", key, **kw)
+        print(f"[gizmo] scene {scene_id} ready (cancelled scene job {job_id})", flush=True)
+    else:
+        print(f"[gizmo] scene {scene_id} ready", flush=True)
+    return scene_id
+
+
+def generate_asset(key: str, prompt: str, *, scene_id: str, pipeline: str | None,
+                   persist: bool, **kw) -> str:
+    """POST /v1/assets (into `scene_id`) -> job_id."""
+    body = {"prompt": prompt, "persist": persist, "scene_id": scene_id}
     if pipeline:
         body["asset_pipeline"] = pipeline
     payload = _json("POST", "/v1/assets", key, body=body, **kw)
     job_id = _dig(payload, "job_id", "jobId", "id")
     if not job_id:
         raise SystemExit(f"no job_id in /v1/assets response: {payload}")
-    print(f"[gizmo] queued asset job {job_id}", flush=True)
+    print(f"[gizmo] queued asset job {job_id} in scene {scene_id}", flush=True)
     return job_id
 
 
@@ -231,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--name", help="slug for assets/objects/<name>/ (default: derived from prompt)")
     ap.add_argument("--format", default="mjcf", choices=["mjcf", "usd", "sdf"], help="export format")
     ap.add_argument("--pipeline", default=None, help="asset_pipeline override (geometry pipeline)")
+    ap.add_argument("--scene-id", default=None, help="reuse an existing scene container instead of creating one")
     ap.add_argument("--no-persist", action="store_true", help="don't persist the asset to Gizmo's S3")
     ap.add_argument("--timeout", type=int, default=300, help="seconds to wait for the job")
     ap.add_argument("--api-key", default=None, help="overrides $GIZMO_API_KEY")
@@ -251,7 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     name = args.name or "".join(c if c.isalnum() else "_" for c in args.prompt.lower())[:40].strip("_")
     out_dir = OUT_ROOT / name
 
-    job_id = generate_asset(key, args.prompt, pipeline=args.pipeline, persist=not args.no_persist, **kw)
+    scene_id = args.scene_id or create_scene(key, args.prompt, **kw)
+    job_id = generate_asset(key, args.prompt, scene_id=scene_id, pipeline=args.pipeline,
+                            persist=not args.no_persist, **kw)
     job = poll_job(key, job_id, timeout=args.timeout, **kw)
     asset_id = _dig(job, "asset_id", "assetId")
     if not asset_id:

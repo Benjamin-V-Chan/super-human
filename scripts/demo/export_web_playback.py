@@ -34,12 +34,18 @@ MOUNT = (0.0, -0.40, 1.00)
 TARGET = (0.0, 0.22, 0.95)  # fixed, comfortably reachable forward reach
 
 
-def write_web_scene(design, mesh_dir, target=TARGET) -> Path:
+def write_web_scene(design, mesh_dir, target=TARGET, *, mount_pos=MOUNT, objects=None,
+                    markers=None) -> Path:
     """Copy per-link STLs + write the articulated web scene XML; return its path.
 
     Rewrites build_mjcf's absolute mesh paths to relative (arm_links/) with
     meshdir=".", and adds a visible green target marker (the WASM loader renders
     geoms, not <site>s). Validates the scene compiles before returning.
+
+    `mount_pos` lets a scenario lower/lean the shoulder (e.g. a crouch). `objects`
+    (a list of SceneObject) splices the scenario's task objects in as visible
+    fallback boxes — the WASM loader renders group<3 geoms, so the browser shows
+    the shoe / bottle / drawer the arm is reaching for.
     """
     import mujoco
 
@@ -47,17 +53,45 @@ def write_web_scene(design, mesh_dir, target=TARGET) -> Path:
 
     LINKS_DIR.mkdir(parents=True, exist_ok=True)
     for link in design.links:
-        shutil.copy(mesh_dir / f"{link.name}.stl", LINKS_DIR / f"{link.name}.stl")
+        src, dst = mesh_dir / f"{link.name}.stl", LINKS_DIR / f"{link.name}.stl"
+        if src.resolve() != dst.resolve():  # mesh_dir may already BE LINKS_DIR
+            shutil.copy(src, dst)
 
-    xml = build_mjcf(design, mount_pos=MOUNT, target_pos=tuple(target), mesh_dir=mesh_dir)
+    xml = build_mjcf(design, mount_pos=tuple(mount_pos), target_pos=tuple(target), mesh_dir=mesh_dir)
     xml = xml.replace('<compiler angle="radian" autolimits="true"/>',
                       '<compiler angle="radian" autolimits="true" meshdir="."/>')
     xml = xml.replace(f'file="{Path(mesh_dir).resolve()}/', 'file="arm_links/')
+    if objects:
+        from prosthesis_rl.sim.gizmo_asset import inject_objects
+        shoe_stl = LINKS_DIR / "shoe.stl"
+        shoe_objs = [o for o in objects if o.name == "shoe"] if shoe_stl.exists() else []
+        other = [o for o in objects if o not in shoe_objs]
+        if other:
+            xml = inject_objects(xml, other)  # fallback boxes for non-shoe props
+        if shoe_objs:
+            # Detailed (decimated) Gizmo shoe, instanced from one shared mesh asset.
+            xml = xml.replace("  </asset>",
+                              '    <mesh name="shoe_mesh" file="arm_links/shoe.stl"/>\n  </asset>')
+            bodies = ""
+            for o in shoe_objs:
+                bodies += (f'\n    <body name="obj_{o.name}" pos="{o.pos[0]:.5g} {o.pos[1]:.5g} 0.005">'
+                           '\n      <geom type="mesh" mesh="shoe_mesh" rgba="0.62 0.4 0.27 1" '
+                           'contype="0" conaffinity="0" group="2"/>\n    </body>')
+            xml = xml.replace("  </worldbody>", bodies + "\n  </worldbody>")
+    # Big bright-green target glow (live.js renders green spheres emissive +
+    # always-on-top), so where the hand should go is obvious even when low/to the
+    # side. `markers` adds the other waypoints (e.g. the approach) as smaller dots.
     tx, ty, tz = target
-    marker = (f'\n    <body name="target_marker" mocap="true" pos="{tx:.5g} {ty:.5g} {tz:.5g}">'
-              '\n      <geom type="sphere" size="0.03" rgba="0.1 0.9 0.2 0.85" '
-              'contype="0" conaffinity="0"/>\n    </body>')
-    xml = xml.replace("  </worldbody>", marker + "\n  </worldbody>")
+    blobs = (f'\n    <body name="target_marker" mocap="true" pos="{tx:.5g} {ty:.5g} {tz:.5g}">'
+             '\n      <geom type="sphere" size="0.045" rgba="0.12 0.95 0.28 1" '
+             'contype="0" conaffinity="0"/>\n    </body>')
+    for i, mk in enumerate(markers or []):
+        mx, my, mz = mk
+        blobs += (f'\n    <body name="waypoint_marker_{i}" mocap="true" '
+                  f'pos="{mx:.5g} {my:.5g} {mz:.5g}">'
+                  '\n      <geom type="sphere" size="0.028" rgba="0.15 0.85 0.3 0.8" '
+                  'contype="0" conaffinity="0"/>\n    </body>')
+    xml = xml.replace("  </worldbody>", blobs + "\n  </worldbody>")
 
     out = SCENES / "arm_articulated.xml"
     out.write_text(xml)

@@ -1,0 +1,60 @@
+{
+  "task_id": "pick_from_floor",
+  "primary_action": "pick it up off the floor",
+  "description": "Crouch and pick an object up off the floor.",
+  "posture": "floor_reach",
+  "mount_pos": [
+    0.0,
+    0.25,
+    0.7
+  ],
+  "objects": [
+    {
+      "name": "object",
+      "prompt": "a small box / parcel resting on the floor",
+      "pos": [
+        0.0,
+        0.3,
+        0.07
+      ],
+      "rgba": [
+        0.75,
+        0.55,
+        0.3,
+        1.0
+      ],
+      "fallback_half": [
+        0.06,
+        0.06,
+        0.06
+      ],
+      "mjcf_dir": ""
+    }
+  ],
+  "waypoints": [
+    {
+      "name": "approach",
+      "pos": [
+        0.0,
+        0.27,
+        0.3
+      ],
+      "tolerance_m": 0.05,
+      "dwell_s": 0.0,
+      "weight": 1.0
+    },
+    {
+      "name": "grasp",
+      "pos": [
+        0.0,
+        0.28,
+        0.18
+      ],
+      "tolerance_m": 0.04,
+      "dwell_s": 0.4,
+      "weight": 3.0
+    }
+  ],
+  "success_condition": "hand reaches the object on the floor (within 4 cm)",
+  "source": "library:pick_from_floor"
+}

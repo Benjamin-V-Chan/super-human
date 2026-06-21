@@ -87,6 +87,33 @@
       #dash.hidden {
         transform: translateX(100%);
       }
+      /* Training / Durability tab switcher */
+      #dash-tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      #dash-tabs .tab {
+        flex: 1;
+        padding: 8px 10px;
+        background: var(--card);
+        color: var(--dim);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #dash-tabs .tab.active {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: var(--card2, #1b2630);
+      }
+      .tabpane {
+        display: none;
+      }
+      .tabpane.active {
+        display: block;
+      }
       #dash h1 {
         font-size: 15px;
         margin: 6px 0 2px;
@@ -181,8 +208,7 @@
       {
         "imports": {
           "three": "./node_modules/three/build/three.module.js",
-          "three/addons/": "./node_modules/three/examples/jsm/",
-          "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
+          "three/addons/": "./node_modules/three/examples/jsm/"
         }
       }
     </script>
@@ -190,15 +216,22 @@
   <body>
     <button id="dash-toggle" title="Show / hide metrics">▦</button>
     <div id="dash">
-      <h1>
-        <span class="dot" id="status-dot" style="background: #888"></span>PPO ·
-        reach task
-      </h1>
-      <div class="meta" id="dash-meta">waiting for backend…</div>
-      <div id="bar"><div id="bar-fill"></div></div>
-      <div id="reach">fixed reach: <b id="reach-val">—</b></div>
-      <button id="reset-btn">↻ Reset training</button>
-      <div id="dash-cards"></div>
+      <div id="dash-tabs">
+        <button class="tab active" data-tab="training">Training</button>
+        <button class="tab" data-tab="durability">Durability</button>
+      </div>
+      <div id="tab-training" class="tabpane active">
+        <h1>
+          <span class="dot" id="status-dot" style="background: #888"></span>PPO
+          · reach task
+        </h1>
+        <div class="meta" id="dash-meta">waiting for backend…</div>
+        <div id="bar"><div id="bar-fill"></div></div>
+        <div id="reach">fixed reach: <b id="reach-val">—</b></div>
+        <button id="reset-btn">↻ Reset training</button>
+        <div id="dash-cards"></div>
+      </div>
+      <div id="tab-durability" class="tabpane"></div>
     </div>
     <script type="module" src="./src/live.js"></script>
   </body>

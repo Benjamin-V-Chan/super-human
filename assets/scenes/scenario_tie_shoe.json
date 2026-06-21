@@ -1,0 +1,60 @@
+{
+  "task_id": "tie_shoe",
+  "primary_action": "tie my shoe",
+  "description": "Crouch and bring the hand down to the shoelaces on the floor in front of the foot.",
+  "posture": "floor_reach",
+  "mount_pos": [
+    0.0,
+    0.25,
+    0.7
+  ],
+  "objects": [
+    {
+      "name": "shoe",
+      "prompt": "a single sneaker / running shoe with laces, sitting on the floor",
+      "pos": [
+        -0.16,
+        0.3,
+        0.07
+      ],
+      "rgba": [
+        0.55,
+        0.35,
+        0.22,
+        1.0
+      ],
+      "fallback_half": [
+        0.05,
+        0.12,
+        0.045
+      ],
+      "mjcf_dir": "/Users/owner/Downloads/hackathons/armasai/assets/objects/shoe"
+    }
+  ],
+  "waypoints": [
+    {
+      "name": "approach",
+      "pos": [
+        -0.14,
+        0.28,
+        0.32
+      ],
+      "tolerance_m": 0.05,
+      "dwell_s": 0.0,
+      "weight": 1.0
+    },
+    {
+      "name": "laces",
+      "pos": [
+        -0.16,
+        0.29,
+        0.2
+      ],
+      "tolerance_m": 0.04,
+      "dwell_s": 0.4,
+      "weight": 3.0
+    }
+  ],
+  "success_condition": "hand reaches the laces near the floor (within 4 cm)",
+  "source": "library:tie_shoe"
+}

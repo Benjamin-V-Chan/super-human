@@ -1,0 +1,49 @@
+{
+  "task_id": "press_switch",
+  "primary_action": "press the light switch",
+  "description": "Raise the hand to a wall switch / button and press it.",
+  "posture": "seated",
+  "mount_pos": [
+    0.0,
+    -0.4,
+    1.0
+  ],
+  "objects": [
+    {
+      "name": "switch",
+      "prompt": "a wall light switch plate",
+      "pos": [
+        0.0,
+        0.12,
+        1.12
+      ],
+      "rgba": [
+        0.92,
+        0.92,
+        0.92,
+        1.0
+      ],
+      "fallback_half": [
+        0.04,
+        0.01,
+        0.06
+      ],
+      "mjcf_dir": ""
+    }
+  ],
+  "waypoints": [
+    {
+      "name": "press",
+      "pos": [
+        0.0,
+        0.1,
+        1.1
+      ],
+      "tolerance_m": 0.04,
+      "dwell_s": 0.3,
+      "weight": 3.0
+    }
+  ],
+  "success_condition": "hand reaches the switch on the wall (within 4 cm)",
+  "source": "library:press_switch"
+}

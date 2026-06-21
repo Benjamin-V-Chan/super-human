@@ -18,7 +18,6 @@ import { EvalOverlay } from "./evalOverlay.js";
 import { TaskPanel } from "./taskPanel.js";
 import { GraspController } from "./graspController.js";
 import load_mujoco from "../node_modules/mujoco-js/dist/mujoco_wasm.js";
-import { attachSplatBackdrop } from "./splatBackdrop.js";
 
 // Load the MuJoCo Module
 const mujoco = await load_mujoco();
@@ -43,12 +42,6 @@ mujoco.FS.writeFile(
 export class MuJoCoDemo {
   constructor() {
     this.mujoco = mujoco;
-
-    // Optional Gaussian-splat room backdrop (opt-in via ?splat). Render-only —
-    // the splat never enters physics; MuJoCo still owns every collision.
-    this.splatEnabled = new URLSearchParams(window.location.search).has(
-      "splat",
-    );
 
     // Load in the state from XML
     this.model = mujoco.MjModel.loadFromXML("/working/" + initialScene);
@@ -168,12 +161,6 @@ export class MuJoCoDemo {
 
     // Scripted grasp loop (runs only for grasp tasks on the hand scene).
     this.graspController = new GraspController(this);
-
-    // Room Gaussian splat behind the live arm (opt-in via ?splat). Fire-and-
-    // forget: the floor/fog are hidden synchronously, but the (large) splat
-    // loads in the background so the arm + physics render immediately instead of
-    // blocking init() on a multi-hundred-MB download. The splat pops in when ready.
-    if (this.splatEnabled) this.enableSplatBackdrop();
   }
 
   /** Load the arm + target + grader weights for a task from tasks.json. */
@@ -187,8 +174,6 @@ export class MuJoCoDemo {
     if (this.params.scene !== wantArm) {
       this.params.scene = wantArm;
       await reloadFunc.call(this); // rebuilds model/data; overlay rebinds lazily
-      // reloadFunc rebuilds the reflective floor; re-hide it so the splat shows.
-      if (this.splatEnabled) this.hideFloorForSplat();
     }
     this.activeTask = task;
     this._applyTarget(task.target);
@@ -208,28 +193,6 @@ export class MuJoCoDemo {
     d.mocap_pos[mid * 3 + 1] = t[1];
     d.mocap_pos[mid * 3 + 2] = t[2];
     this.mujoco.mj_forward(m, d);
-  }
-
-  /** Attach the room splat behind the live physics arm (opt-in via ?splat).
-   *  The splat is render-only — MuJoCo still owns every collision — so this
-   *  just hides the reflective floor + fog and drops the splat into the scene. */
-  async enableSplatBackdrop() {
-    this.hideFloorForSplat();
-    if (!this.splat) {
-      this.splat = await attachSplatBackdrop(this.scene, {
-        align: true,
-        statusEl: document.getElementById("sub"),
-      });
-    }
-  }
-
-  /** Hide the MuJoCo reflective floor + fog so the splat reads as the room.
-   *  Must re-run after every scene (re)load — reloadFunc rebuilds the floor. */
-  hideFloorForSplat() {
-    this.scene.fog = null;
-    this.scene.traverse((o) => {
-      if (o.type === "Reflector") o.visible = false;
-    });
   }
 
   onWindowResize() {

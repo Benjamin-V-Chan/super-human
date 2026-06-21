@@ -1,0 +1,60 @@
+{
+  "task_id": "drink_bottle",
+  "primary_action": "drink from a water bottle",
+  "description": "Reach forward to a bottle standing on the table and grasp it.",
+  "posture": "table",
+  "mount_pos": [
+    0.0,
+    -0.3,
+    0.95
+  ],
+  "objects": [
+    {
+      "name": "bottle",
+      "prompt": "a water bottle standing upright on a table",
+      "pos": [
+        0.0,
+        0.18,
+        0.8
+      ],
+      "rgba": [
+        0.2,
+        0.45,
+        0.8,
+        1.0
+      ],
+      "fallback_half": [
+        0.035,
+        0.035,
+        0.11
+      ],
+      "mjcf_dir": ""
+    }
+  ],
+  "waypoints": [
+    {
+      "name": "approach",
+      "pos": [
+        0.0,
+        0.12,
+        0.88
+      ],
+      "tolerance_m": 0.05,
+      "dwell_s": 0.0,
+      "weight": 1.0
+    },
+    {
+      "name": "grasp",
+      "pos": [
+        0.0,
+        0.18,
+        0.83
+      ],
+      "tolerance_m": 0.04,
+      "dwell_s": 0.3,
+      "weight": 3.0
+    }
+  ],
+  "success_condition": "hand reaches the bottle on the table (within 4 cm)",
+  "source": "library:drink_bottle"
+}

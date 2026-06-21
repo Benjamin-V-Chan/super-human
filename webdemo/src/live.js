@@ -10,12 +10,23 @@
 import * as THREE from "three";
 import { OrbitControls } from "../node_modules/three/examples/jsm/controls/OrbitControls.js";
 import load_mujoco from "../node_modules/mujoco-js/dist/mujoco_wasm.js";
-import { attachSplatBackdrop } from "./splatBackdrop.js";
+import { initDurabilityPanel } from "./durability.js";
 
-const SCENE = "arm_articulated.xml";
+// Fleet mode: when the backend is streaming fleet.json (a grid of N agents, one
+// PPO policy on N randomized task placements), load the grid scene and play that
+// stream. Otherwise the single-agent view.
+let FLEET = false;
+try {
+  const probe = await fetch("./assets/live/fleet.json", { cache: "no-store" });
+  FLEET = probe.ok;
+} catch {}
+
+const SCENE = FLEET ? "arm_fleet.xml" : "arm_articulated.xml";
 const LINKS = ["upper_arm", "forearm", "gripper"];
 const STATUS_URL = "./assets/live/status.json";
-const TRAJ_URL = "./assets/live/trajectory.json";
+const TRAJ_URL = FLEET
+  ? "./assets/live/fleet.json"
+  : "./assets/live/trajectory.json";
 
 const mujoco = await load_mujoco();
 
@@ -37,6 +48,19 @@ for (const link of LINKS) {
     ),
   );
 }
+// Detailed (decimated) Gizmo shoe, when a scene references it. Optional: fetch
+// guarded so single-agent scenes that don't use it still load.
+try {
+  const shoeRes = await fetch("./assets/scenes/arm_links/shoe.stl", {
+    cache: "no-store",
+  });
+  if (shoeRes.ok) {
+    mujoco.FS.writeFile(
+      "/working/arm_links/shoe.stl",
+      new Uint8Array(await shoeRes.arrayBuffer()),
+    );
+  }
+} catch {}
 
 // --- swizzle helpers (MuJoCo z-up -> three.js y-up) -------------------------
 function getPosition(buffer, index, target) {
@@ -62,7 +86,7 @@ function buildBodies(model, scene) {
     if (!(model.geom_group[g] < 3)) continue;
     const b = model.geom_bodyid[g];
     const type = model.geom_type[g];
-    if (type == mujoco.mjtGeom.mjGEOM_PLANE.value) continue; // splat is the floor
+    if (type == mujoco.mjtGeom.mjGEOM_PLANE.value) continue; // floor is the THREE ground plane below
     const size = [
       model.geom_size[g * 3 + 0],
       model.geom_size[g * 3 + 1],
@@ -115,16 +139,32 @@ function buildBodies(model, scene) {
       model.geom_rgba[g * 4 + 2],
       model.geom_rgba[g * 4 + 3],
     ];
+    // Green target/waypoint markers: render as an emissive "glow" that draws on
+    // top of everything (depthTest off) so the goal the arm is reaching for is
+    // always visible — never hidden behind the arm, leg, or wearer.
+    const isMarker =
+      color[1] > 0.6 &&
+      color[0] < 0.4 &&
+      color[2] < 0.45 &&
+      type == mujoco.mjtGeom.mjGEOM_SPHERE.value;
     const material = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(color[0], color[1], color[2]),
       transparent: color[3] < 1.0,
       opacity: color[3],
       roughness: 0.7,
       metalness: 0.1,
+      emissive: isMarker
+        ? new THREE.Color(0.15, 1.0, 0.3)
+        : new THREE.Color(0, 0, 0),
+      emissiveIntensity: isMarker ? 1.0 : 0.0,
     });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = g != 0;
-    mesh.receiveShadow = true;
+    mesh.castShadow = g != 0 && !isMarker;
+    mesh.receiveShadow = !isMarker;
+    if (isMarker) {
+      material.depthTest = false; // always-on-top glow, never hidden by the arm
+      mesh.renderOrder = 999;
+    }
     bodies[b].add(mesh);
     getPosition(model.geom_pos, g, mesh.position);
     getQuaternion(model.geom_quat, g, mesh.quaternion);
@@ -133,8 +173,9 @@ function buildBodies(model, scene) {
 }
 
 // --- scene / renderer -------------------------------------------------------
-const model = mujoco.MjModel.loadFromXML("/working/" + SCENE);
-const data = new mujoco.MjData(model);
+// `let` (not const): the model is hot-swapped when a Gizmo scene is generated.
+let model = mujoco.MjModel.loadFromXML("/working/" + SCENE);
+let data = new mujoco.MjData(model);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0.07, 0.13, 0.18);
@@ -144,7 +185,9 @@ const camera = new THREE.PerspectiveCamera(
   0.01,
   100,
 );
-camera.position.set(1.6, 1.5, 1.6);
+// Pull the camera way back for the fleet grid; close in for a single agent.
+if (FLEET) camera.position.set(5.5, 7.5, 6.5);
+else camera.position.set(1.6, 1.5, 1.6);
 scene.add(camera);
 scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 const key = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -162,7 +205,7 @@ renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.7, 0);
+controls.target.set(0, 0.4, FLEET ? -3.0 : 0); // fleet grid marches back in -z
 controls.enableDamping = true;
 controls.update();
 window.addEventListener("resize", () => {
@@ -171,12 +214,22 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-const bodies = buildBodies(model, scene);
+let bodies = buildBodies(model, scene);
 
-// Room Gaussian splat as the backdrop + floor (shared module + WASD/QE/ZX/P align
-// tool). Fire-and-forget: the arm + dashboard render immediately while the (large)
-// splat loads, then it pops in. Render-only — MuJoCo still owns all physics.
-attachSplatBackdrop(scene, { align: true });
+// Neutral ground plane so the arm reads as standing on a floor (replaces the old
+// gaussian-splat backdrop/floor). A Gizmo-generated scene, when loaded, sits on
+// top of this — see loadGizmoScene below. Render-only; MuJoCo owns all physics.
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 20),
+  new THREE.MeshPhysicalMaterial({
+    color: 0x16242f,
+    roughness: 0.95,
+    metalness: 0.0,
+  }),
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
 
 // --- trajectory playback (current policy) -----------------------------------
 let traj = null;
@@ -208,6 +261,155 @@ function render(timeMS) {
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(render);
+
+// --- live Gizmo scene generation (replaces the gaussian-splat backdrop) ------
+// Ask the backend (scripts/demo/scene_server.py) to generate a physics-ready
+// scene from a task description with Gizmo (Antim Labs), then hot-swap the MuJoCo
+// model to "the arm inside that scene". The first request for a task bakes
+// (minutes, with live progress); repeats are instant cache hits. The arm keeps
+// animating because the merged model lists the arm joints first, so the policy
+// trajectory frames still map onto them.
+
+function clearBodies() {
+  for (const b in bodies) {
+    const grp = bodies[b];
+    scene.remove(grp);
+    grp.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+  }
+}
+
+async function loadGizmoScene(url) {
+  const xml = await (await fetch(url + "?t=" + Date.now())).text();
+  mujoco.FS.writeFile("/working/gizmo_scene.xml", xml); // arm_links/*.stl already in FS
+  const next = mujoco.MjModel.loadFromXML("/working/gizmo_scene.xml");
+  clearBodies();
+  model = next;
+  data = new mujoco.MjData(model);
+  bodies = buildBodies(model, scene);
+  mujoco.mj_forward(model, data);
+  startMS = null; // restart trajectory timing on the new model
+}
+
+// minimal control panel (kept self-contained so live.html needs no new markup)
+const gen = document.createElement("div");
+gen.id = "scene-gen";
+gen.innerHTML = `
+  <input id="scene-action" placeholder="describe a task — e.g. drink from a water bottle" />
+  <div class="scene-row">
+    <button id="scene-go">Generate scene</button>
+    <button id="scene-showcase" title="load a pre-baked scene instantly">Showcase</button>
+  </div>
+  <div id="scene-msg"></div>`;
+const css = document.createElement("style");
+css.textContent = `
+  #scene-gen{position:fixed;left:16px;bottom:16px;width:320px;z-index:20;
+    font-family:-apple-system,Arial,sans-serif;background:rgba(12,22,30,.86);
+    border:1px solid #24323d;border-radius:10px;padding:12px;color:#dce6ee;
+    backdrop-filter:blur(6px)}
+  #scene-gen input{width:100%;box-sizing:border-box;background:#0c161e;color:#dce6ee;
+    border:1px solid #2a3742;border-radius:6px;padding:8px;font-size:13px}
+  #scene-gen .scene-row{display:flex;gap:8px;margin-top:8px}
+  #scene-gen button{flex:1;background:#1c3b2b;color:#6fe6a0;border:1px solid #2f5c43;
+    border-radius:6px;padding:8px;font-size:13px;cursor:pointer}
+  #scene-gen button:hover{background:#244c37}
+  #scene-gen button:disabled{opacity:.5;cursor:wait}
+  #scene-msg{margin-top:8px;font-size:12px;color:#8aa1b3;min-height:16px}`;
+document.head.appendChild(css);
+document.body.appendChild(gen);
+
+const $action = gen.querySelector("#scene-action");
+const $go = gen.querySelector("#scene-go");
+const $show = gen.querySelector("#scene-showcase");
+const $msg = gen.querySelector("#scene-msg");
+let polling = null;
+
+function setBusy(b) {
+  $go.disabled = b;
+  $show.disabled = b;
+}
+
+async function pollStatus() {
+  let s;
+  try {
+    s = await (await fetch("/scene-status?t=" + Date.now())).json();
+  } catch {
+    return;
+  }
+  if (s.status === "running") {
+    $msg.textContent =
+      "⏳ " + (s.stage || "working…") + " (first bake takes minutes)";
+  } else if (s.status === "ready" && s.ready) {
+    clearInterval(polling);
+    polling = null;
+    $msg.textContent =
+      (s.cached ? "✓ cached — " : "✓ generated — ") + "loading…";
+    await loadGizmoScene(s.scene_url);
+    $msg.textContent = s.cached
+      ? "✓ scene loaded (from cache)"
+      : "✓ scene generated & loaded";
+    setBusy(false);
+  } else if (s.status === "error") {
+    clearInterval(polling);
+    polling = null;
+    $msg.textContent = "⚠ " + (s.error || "generation failed");
+    setBusy(false);
+  }
+}
+
+$go.addEventListener("click", async () => {
+  const action = $action.value.trim();
+  if (!action) {
+    $msg.textContent = "type a task first";
+    return;
+  }
+  setBusy(true);
+  $msg.textContent = "submitting…";
+  try {
+    const r = await (
+      await fetch("/generate-scene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+    ).json();
+    if (!r.ok) {
+      $msg.textContent =
+        "⚠ " +
+        (r.error || (r.busy ? "a scene is already generating" : "failed"));
+      setBusy(false);
+      return;
+    }
+    if (polling) clearInterval(polling);
+    polling = setInterval(pollStatus, 2000);
+    pollStatus();
+  } catch (e) {
+    $msg.textContent =
+      "⚠ backend not reachable — run scripts/demo/scene_server.py";
+    setBusy(false);
+  }
+});
+
+$show.addEventListener("click", async () => {
+  setBusy(true);
+  $msg.textContent = "loading showcase…";
+  try {
+    const r = await (await fetch("/scene-showcase?t=" + Date.now())).json();
+    if (!r.ok) {
+      $msg.textContent = "⚠ " + (r.error || "no cached scene");
+      setBusy(false);
+      return;
+    }
+    await loadGizmoScene(r.scene_url);
+    $msg.textContent = "✓ showcase scene loaded";
+  } catch (e) {
+    $msg.textContent =
+      "⚠ backend not reachable — run scripts/demo/scene_server.py";
+  }
+  setBusy(false);
+});
 
 // --- dashboard --------------------------------------------------------------
 // Only the metrics that tell you whether the arm is learning the task.
@@ -401,6 +603,22 @@ if (dashToggle && dashEl) {
   dashToggle.addEventListener("click", () => dashEl.classList.toggle("hidden"));
 }
 
+// --- Training / Durability tabs ---------------------------------------------
+// The durability panel is built lazily on first open (it fetches the stress-test
+// report and recomputes lifespan/recommendations in-browser).
+const tabBtns = document.querySelectorAll("#dash-tabs .tab");
+const durRoot = document.getElementById("tab-durability");
+tabBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const which = btn.dataset.tab;
+    tabBtns.forEach((b) => b.classList.toggle("active", b === btn));
+    document
+      .querySelectorAll(".tabpane")
+      .forEach((p) => p.classList.toggle("active", p.id === "tab-" + which));
+    if (which === "durability" && durRoot) initDurabilityPanel(durRoot);
+  });
+});
+
 // --- poll loop --------------------------------------------------------------
 async function poll() {
   try {
@@ -426,3 +644,8 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 poll();
+
+// On open, auto-load the cached Gizmo scene so the page immediately shows the
+// generated environment (no click needed). Safe if the backend isn't up — the
+// handler just shows a hint. Use "Generate scene" for a new task.
+$show.click();

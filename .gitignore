@@ -186,6 +186,13 @@ assets/stl/*.stl
 assets/stl/*/
 # Scratch/smoke RL policies (keep deliberately-trained ones e.g. reach_ppo.zip)
 assets/policies/*_smoke.zip
+# Gizmo-baked task objects (heavy MJCF + inline/exported meshes; rebake via
+# scripts/recon/gizmo_assets.py). Keep the resolved scenario JSON, drop binaries.
+assets/objects/
+# Rendered scenario hero frames (regenerable via scenario_orchestrator --render)
+assets/scenes/scenario_*.png
+# Live fleet trajectory stream (regenerated each run by train_live --fleet)
+webdemo/assets/live/fleet.json
 
 # Recon pipeline outputs (heavy / machine-specific): keep code + room.xml, drop binaries
 scripts/recon/frames/
@@ -260,3 +267,14 @@ __pycache__/
 
 # Candidate comparison run artifacts (regenerable via scripts/compare_candidates.py)
 runs/
+
+# Gizmo scene cache (large baked MJCF + texture exports; regenerated on demand)
+assets/scenes/gizmo/
+
+# Large generated binaries — kept out of git, regenerate from code:
+# trained PPO policies (rl/train.py / *_dashboard.py --train)
+assets/policies/*.zip
+# rendered hero frames (scripts/demo/*.py)
+assets/renders/
+# durability dashboard sample data (scripts/demo/durability_dashboard.py)
+webdemo/assets/durability/report.json

@@ -46,6 +46,10 @@ class DesignOptimizationLoop:
         self.n_candidates = n_candidates
         self._rl_quick   = 5_000  if quick_mode else RL_TIMESTEPS_QUICK
         self._rl_final   = 10_000 if quick_mode else RL_TIMESTEPS_FINAL
+        # The ADL task scene derived from the clip (posture + objects + reach
+        # waypoints). Set in _run_inner; RL trains on it and the trajectory plays
+        # it back so the arm practises the actual action, not a floating dot.
+        self._scenario = None
 
     # ── Public entry point ─────────────────────────────────────────────────────
 
@@ -97,6 +101,25 @@ class DesignOptimizationLoop:
                 "grip_capacity": problem.constraints.grip_capacity,
                 "anthropometrics": dict(problem.residual_anthropometrics or {}),
             },
+        }))
+
+        # ── Stage 1b: Scenario — turn the observed action into a trainable task
+        # scene (posture + objects + reach waypoints). This is what makes the RL
+        # train on *doing the clip's action* (tie the shoe) instead of a dot.
+        from prosthesis_rl.agents.scenario import ScenarioAgent
+
+        self._scenario = ScenarioAgent().derive(problem)
+        sc = self._scenario
+        emit.emit(PipelineEvent("stage_done", "scenario", {
+            "task_id": sc.task_id,
+            "posture": sc.posture,
+            "source": sc.source,
+            "description": sc.description,
+            "success_condition": sc.success_condition,
+            "objects": [{"name": o.name, "pos": list(o.pos), "prompt": o.prompt}
+                        for o in sc.objects],
+            "waypoints": [{"name": w.name, "pos": list(w.pos), "weight": w.weight}
+                          for w in sc.waypoints],
         }))
 
         # ── Stage 2: Requirements ──────────────────────────────────────────────
@@ -297,6 +320,9 @@ class DesignOptimizationLoop:
             problem, best_eval, rl_result, best_params, best_name,
             iteration, t0,
         )
+        if self._scenario is not None:
+            stats["scenario_task"] = self._scenario.task_id
+            stats["scenario_posture"] = self._scenario.posture
 
         rationale_text = design_agent.rationale_report(
             [best_params], [best_eval] if best_eval else [], 0, "Best design from optimization loop",
@@ -352,12 +378,15 @@ class DesignOptimizationLoop:
             eval_episodes=5 if self.quick_mode else 20,
             verbose=0,
             progress_cb=_progress,
+            scenario=self._scenario,   # train on the clip's ADL task scene
         )
 
     def _run_trajectory(self, params, rl_result, mesh_dir) -> list[dict]:
         """Roll out the best RL policy and collect qpos frames for viewer."""
         if not rl_result or not rl_result.get("policy"):
             return []
+        if self._scenario is not None:
+            return self._run_scenario_trajectory(params, rl_result, mesh_dir)
         try:
             import mujoco
             import numpy as np
@@ -381,6 +410,43 @@ class DesignOptimizationLoop:
 
             run_policy_reach(model, data, params, targets[0], policy,
                              seconds=4.0, fps=20, frame_cb=_cb)
+            return frames
+        except Exception:
+            return []
+
+    def _run_scenario_trajectory(self, params, rl_result, mesh_dir) -> list[dict]:
+        """Roll the trained policy through the ADL scene, pinned to the task-
+        completing waypoint, so the viewer plays back the arm doing the clip's
+        action (crouch to the laces) — not a reach to a floating dot."""
+        try:
+            from prosthesis_rl.rl.rollout import load_policy
+            from prosthesis_rl.rl.scenario_env import ScenarioReachEnv
+            from prosthesis_rl.sim.mjcf_builder import EE_SITE
+
+            scenario = self._scenario
+            primary = scenario.waypoints.index(scenario.primary_waypoint())
+            env = ScenarioReachEnv(scenario, params, mesh_dir=mesh_dir, seed=42,
+                                   eval_waypoint=primary, add_markers=False)
+            ee_id = env.model.site(EE_SITE).id
+            policy = load_policy(rl_result["policy"])
+
+            frames: list[dict] = []
+
+            def _grab():
+                # arm dof only, to match the bare-arm qpos the viewer plays back
+                frames.append({
+                    "qpos": env.data.qpos[: params.dof].tolist(),
+                    "ee": env.data.site_xpos[ee_id].tolist(),
+                })
+
+            obs, _ = env.reset(seed=42)
+            _grab()
+            done = False
+            while not done:
+                action, _ = policy.predict(obs, deterministic=True)
+                obs, _, term, trunc, _ = env.step(action)
+                _grab()
+                done = term or trunc
             return frames
         except Exception:
             return []

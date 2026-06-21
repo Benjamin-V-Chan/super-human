@@ -1,0 +1,60 @@
+{
+  "task_id": "open_drawer",
+  "primary_action": "open the drawer",
+  "description": "Reach the drawer handle at waist height and pull it open.",
+  "posture": "seated",
+  "mount_pos": [
+    0.0,
+    -0.4,
+    1.0
+  ],
+  "objects": [
+    {
+      "name": "drawer",
+      "prompt": "a kitchen drawer that slides open on a prismatic joint",
+      "pos": [
+        0.0,
+        0.2,
+        0.8
+      ],
+      "rgba": [
+        0.45,
+        0.32,
+        0.24,
+        1.0
+      ],
+      "fallback_half": [
+        0.18,
+        0.12,
+        0.1
+      ],
+      "mjcf_dir": ""
+    }
+  ],
+  "waypoints": [
+    {
+      "name": "handle",
+      "pos": [
+        0.0,
+        0.1,
+        0.88
+      ],
+      "tolerance_m": 0.04,
+      "dwell_s": 0.3,
+      "weight": 3.0
+    },
+    {
+      "name": "pull",
+      "pos": [
+        0.0,
+        0.0,
+        0.88
+      ],
+      "tolerance_m": 0.05,
+      "dwell_s": 0.2,
+      "weight": 1.0
+    }
+  ],
+  "success_condition": "hand reaches the drawer handle (within 4 cm)",
+  "source": "library:open_drawer"
+}

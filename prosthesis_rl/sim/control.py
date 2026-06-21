@@ -62,6 +62,76 @@ def sample_reachable_targets(
     return out
 
 
+def nearest_reachable(
+    model, design: DesignParams, target, *, n: int = 4000, seed: int = 0,
+    avoid_body: bool = True,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Snap a Cartesian target onto the arm's actual reachable set.
+
+    A shoulder-fixed arm cannot put its end-effector at an arbitrary point — only
+    on the manifold its joints can FK to. Hand-authored or LLM-proposed task
+    points routinely sit just off it (too close to the body, or past full
+    extension), which leaves any controller stuck short. This FK-samples joint
+    configs and returns the reachable end-effector pose closest to `target`,
+    together with the joint config that achieves it.
+
+    With `avoid_body` (and a model whose wearer is solid), configs that put the
+    arm *inside* the body are rejected, so the snapped goal pose never asks the
+    hand to phase through the wearer. Falls back to the closest config overall if
+    no collision-free one is found.
+
+    Returns (ee_reachable, q_config, residual_m). The neutral pose is always
+    included so the result is never worse than "don't move".
+    """
+    import mujoco
+
+    ee_id = model.site(EE_SITE).id
+    joints = design.joint_names
+    qadr = np.array([model.joint(j).qposadr[0] for j in joints], dtype=int)
+    ranges = joint_ranges(design)
+    lo = np.array([ranges[j][0] for j in joints])
+    hi = np.array([ranges[j][1] for j in joints])
+    tgt = np.asarray(target, dtype=float)
+
+    arm_bodies = {"mount", *(link.name for link in design.links)}
+    arm_geoms = {g for g in range(model.ngeom)
+                 if model.body(model.geom_bodyid[g]).name in arm_bodies}
+    body_geoms = {g for g in range(model.ngeom)
+                  if (model.body(model.geom_bodyid[g]).name == "human"
+                      or model.body(model.geom_bodyid[g]).name.startswith("obj_"))
+                  and (model.geom_contype[g] or model.geom_conaffinity[g])}
+    check_body = avoid_body and bool(body_geoms)
+
+    def hits_body() -> bool:
+        for c in range(data.ncon):
+            g1, g2 = data.contact[c].geom1, data.contact[c].geom2
+            if ((g1 in arm_geoms) ^ (g2 in arm_geoms)) and (g1 in body_geoms or g2 in body_geoms):
+                return True
+        return False
+
+    data = mujoco.MjData(model)
+    rng = np.random.default_rng(seed)
+    # Seed candidates with the neutral pose, then random FK samples.
+    candidates = np.vstack([np.clip(np.zeros(len(joints)), lo, hi),
+                            rng.uniform(lo, hi, size=(n, len(joints)))])
+    best_d, best_ee, best_q = np.inf, None, None              # collision-free best
+    fb_d, fb_ee, fb_q = np.inf, None, None                    # fallback (any) best
+    for q in candidates:
+        data.qpos[qadr] = q
+        mujoco.mj_forward(model, data)
+        ee = np.array(data.site_xpos[ee_id], dtype=float)
+        d = float(np.linalg.norm(ee - tgt))
+        if d < fb_d:
+            fb_d, fb_ee, fb_q = d, ee, q.copy()
+        if check_body and hits_body():
+            continue
+        if d < best_d:
+            best_d, best_ee, best_q = d, ee, q.copy()
+    if best_ee is None:                                        # nothing collision-free
+        return fb_ee, fb_q, fb_d
+    return best_ee, best_q, best_d
+
+
 class ReachController:
     """Closed-loop DLS velocity IK feeding the position actuators."""
 

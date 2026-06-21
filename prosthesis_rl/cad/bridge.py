@@ -45,21 +45,39 @@ class CadBridge:
         params = self._coerce_to_design_params(spec)
         mjcf_dir = self.output_dir.parent / "mjcf"
         mjcf_dir.mkdir(parents=True, exist_ok=True)
+        # Per-link STLs live next to the meshes export_arm() wrote: assets/stl/<name>/.
+        stl_dir = self.output_dir / name
 
         root = ET.Element("mujoco", model=f"prosthesis_{name}")
-        ET.SubElement(root, "compiler", angle="radian")
+        # meshdir="." so a flat <mesh file="upper_arm.stl"> resolves against the
+        # STL files the web viewer preloads into the WASM FS (webdemo/src/pipeline.js).
+        ET.SubElement(root, "compiler", angle="radian", meshdir=".")
+
+        # Skin each link with its real CAD mesh when the STL exists; otherwise fall
+        # back to a primitive capsule so the scene is always renderable.
+        has_mesh: dict[str, bool] = {}
+        asset_el = ET.SubElement(root, "asset")
+        for link in params.links:
+            has_mesh[link.name] = (stl_dir / f"{link.name}.stl").exists()
+            if has_mesh[link.name]:
+                ET.SubElement(asset_el, "mesh", name=f"{link.name}_mesh",
+                              file=f"{link.name}.stl")
+        if len(asset_el) == 0:
+            root.remove(asset_el)
 
         worldbody = ET.SubElement(root, "worldbody")
         parent_body = ET.SubElement(worldbody, "body", name="mount", pos="0 0 0")
 
-        z_offset = 0.0
+        prev_len = 0.0
         actuator_el = ET.SubElement(root, "actuator")
 
         for link in params.links:
+            # Child offset is RELATIVE to the parent link (its length), so the chain
+            # nests correctly — the gripper sits at the forearm tip, not below it.
             body = ET.SubElement(
                 parent_body, "body",
                 name=link.name,
-                pos=f"0 0 {-z_offset:.5g}",
+                pos=f"0 0 {-prev_len:.5g}",
             )
             for joint in link.joints:
                 lo_r = math.radians(joint.range_deg[0])
@@ -77,13 +95,19 @@ class CadBridge:
                     joint=joint.name,
                     gear="20.0",
                 )
-            ET.SubElement(
-                body, "geom",
-                type="capsule",
-                fromto=f"0 0 0 0 0 {-link.length:.5g}",
-                size=f"{link.radius:.5g}",
-            )
-            z_offset += link.length
+            rgba = " ".join(f"{c:.5g}" for c in link.rgba)
+            if has_mesh[link.name]:
+                ET.SubElement(body, "geom", type="mesh",
+                              mesh=f"{link.name}_mesh", rgba=rgba)
+            else:
+                ET.SubElement(
+                    body, "geom",
+                    type="capsule",
+                    fromto=f"0 0 0 0 0 {-link.length:.5g}",
+                    size=f"{link.radius:.5g}",
+                    rgba=rgba,
+                )
+            prev_len = link.length
             parent_body = body
 
         tree = ET.ElementTree(root)

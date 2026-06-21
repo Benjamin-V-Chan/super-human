@@ -18,6 +18,7 @@ joint's range and fed to the position actuators.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -49,6 +50,10 @@ class ReachEnv(gym.Env):
         control_hz: float = 25.0,
         max_steps: int = 150,
         seed: int | None = None,
+        xml_transform: Callable[[str], str] | None = None,
+        goal_sampler: Callable[[np.random.Generator, np.ndarray], np.ndarray] | None = None,
+        human_collide: bool = False,
+        body_collision_penalty: float = 0.5,
     ) -> None:
         super().__init__()
         import mujoco
@@ -57,8 +62,16 @@ class ReachEnv(gym.Env):
         self.design = design or DesignParams()
         self.mount_pos = np.asarray(mount_pos, dtype=float)
         self.max_steps = int(max_steps)
+        # Scenario hooks (both default to the original random-reach behaviour):
+        #   xml_transform — rewrite the built MJCF (e.g. inject task objects);
+        #   goal_sampler  — choose the episode target (e.g. task waypoints).
+        self._goal_sampler = goal_sampler
+        self._body_pen = float(body_collision_penalty)
 
-        xml = build_mjcf(self.design, mount_pos=mount_pos, mesh_dir=mesh_dir)
+        xml = build_mjcf(self.design, mount_pos=mount_pos, mesh_dir=mesh_dir,
+                         human_collide=human_collide)
+        if xml_transform is not None:
+            xml = xml_transform(xml)
         self.model = mujoco.MjModel.from_xml_string(xml, {})
         self.data = mujoco.MjData(self.model)
         self.substeps = max(1, round((1.0 / control_hz) / self.model.opt.timestep))
@@ -79,6 +92,14 @@ class ReachEnv(gym.Env):
         self.arm_geoms = {
             g for g in range(self.model.ngeom)
             if self.model.body(self.model.geom_bodyid[g]).name in arm_bodies
+        }
+        # Body/scene geoms the arm must not phase through: the solid wearer plus
+        # any injected task objects (obj_*). Empty unless the wearer is collidable.
+        self.body_geoms = {
+            g for g in range(self.model.ngeom)
+            if (self.model.body(self.model.geom_bodyid[g]).name == "human"
+                or self.model.body(self.model.geom_bodyid[g]).name.startswith("obj_"))
+            and (self.model.geom_contype[g] or self.model.geom_conaffinity[g])
         }
 
         high = np.full(2 * self.dof + 6, 50.0, dtype=np.float32)
@@ -137,7 +158,10 @@ class ReachEnv(gym.Env):
         neutral = np.clip(np.zeros(self.dof), self.lo, self.hi)
         self._set_arm(neutral)
         neutral_ee = self._ee().copy()
-        self.target = self._sample_reachable_target(neutral_ee)
+        if self._goal_sampler is not None:
+            self.target = np.asarray(self._goal_sampler(self.rng, neutral_ee), dtype=float)
+        else:
+            self.target = self._sample_reachable_target(neutral_ee)
         self._set_arm(neutral)
         self.data.ctrl[: self.dof] = neutral
         self._steps = 0
@@ -152,6 +176,7 @@ class ReachEnv(gym.Env):
 
         energy = 0.0
         self_collision = False
+        body_collision = False
         dt = self.model.opt.timestep
         for _ in range(self.substeps):
             self._mj.mj_step(self.model, self.data)
@@ -161,6 +186,10 @@ class ReachEnv(gym.Env):
                 con = self.data.contact[c]
                 if con.geom1 in self.arm_geoms and con.geom2 in self.arm_geoms:
                     self_collision = True
+                # Arm touching the solid wearer/objects — the phasing we penalize.
+                elif ((con.geom1 in self.arm_geoms) ^ (con.geom2 in self.arm_geoms)) and (
+                        con.geom1 in self.body_geoms or con.geom2 in self.body_geoms):
+                    body_collision = True
 
         dist = float(np.linalg.norm(self._ee() - self.target))
         success = dist < REACH_SUCCESS_M
@@ -174,6 +203,8 @@ class ReachEnv(gym.Env):
         reward -= 0.002                                       # mild time pressure
         if self_collision:
             reward -= 0.25
+        if body_collision:
+            reward -= self._body_pen          # discourage reaching through the wearer
         if success:
             reward += 10.0
         self._prev_dist = dist
@@ -182,5 +213,9 @@ class ReachEnv(gym.Env):
         terminated = success
         truncated = self._steps >= self.max_steps
         info = {"distance": dist, "success": float(success),
-                "energy": energy, "self_collision": float(self_collision)}
+                "energy": energy, "self_collision": float(self_collision),
+                "body_collision": float(body_collision),
+                # Per-joint actuator torque at the end of this control step — the
+                # signal the fatigue model integrates over a stress-test rollout.
+                "torque": np.array(self.data.actuator_force[: self.dof], dtype=float)}
         return self._obs(), float(reward), terminated, truncated, info
