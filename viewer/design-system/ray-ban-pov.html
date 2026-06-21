@@ -1,0 +1,53 @@
+<!-- @dsCard group="Pipeline" name="Ray-Ban POV Capture" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ARMASAI · Ray-Ban POV</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg:#0a0a0f; --border:#2a2a3a; --accent:#00d4ff; --text-muted:#6b6b80; --mono:'JetBrains Mono',monospace; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); padding:32px; display:flex; gap:24px; }
+  .wrap { width:300px; }
+  .cap { font-family:var(--mono); font-size:10px; color:var(--text-muted); letter-spacing:.08em; margin-bottom:8px; text-transform:uppercase; }
+  .pov { position:relative; width:100%; aspect-ratio:16/9; border-radius:8px; overflow:hidden; background:linear-gradient(160deg,#1a1622,#0c0c12); border:1px solid var(--border); }
+  .pov.sampling { box-shadow:0 0 0 1px var(--accent), 0 0 22px rgba(0,212,255,.25); }
+  .table { position:absolute; left:0; right:0; bottom:0; height:38%; background:linear-gradient(180deg,#241c2e,#15101c); border-top:1px solid #3a2f48; }
+  .bottle { position:absolute; left:46%; bottom:38%; width:13%; height:34%; background:linear-gradient(90deg,#2a6a78,#3fb6c8,#2a6a78); border-radius:6px 6px 4px 4px; box-shadow:0 0 14px rgba(0,212,255,.25); }
+  .cap2 { position:absolute; top:-9px; left:25%; width:50%; height:10px; background:#cfd6dd; border-radius:2px; }
+  .forearm { position:absolute; right:0; bottom:0; width:48%; height:18%; background:linear-gradient(90deg,#caa07a,#e3bd96); border-radius:24px; transform:rotate(-18deg); transform-origin:right center; }
+  .vig { position:absolute; inset:0; box-shadow:inset 0 0 60px 14px rgba(0,0,0,.55); }
+  .scan { position:absolute; inset:0; opacity:.18; background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,0,0,.5) 2px 3px); }
+  .hud { position:absolute; left:8px; right:8px; display:flex; justify-content:space-between; font-family:var(--mono); font-size:9px; letter-spacing:.08em; color:#cfd6dd; }
+  .hud.top { top:7px; } .hud.bot { bottom:7px; color:var(--text-muted); }
+  .rec { color:#ff4060; } .tc { color:#9aa; }
+  .br { position:absolute; width:16px; height:16px; border:2px solid var(--accent); }
+  .br.tl{top:14px;left:14px;border-right:0;border-bottom:0} .br.tr{top:14px;right:14px;border-left:0;border-bottom:0}
+  .br.bl{bottom:14px;left:14px;border-right:0;border-top:0} .br.brr{bottom:14px;right:14px;border-left:0;border-top:0}
+  .slabel { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-family:var(--mono); font-size:10px; color:var(--accent); background:rgba(0,212,255,.1); border:1px solid rgba(0,212,255,.4); padding:3px 8px; border-radius:5px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="cap">recording</div>
+    <div class="pov">
+      <div class="table"></div><div class="bottle"><span class="cap2"></span></div><div class="forearm"></div>
+      <div class="vig"></div><div class="scan"></div>
+      <div class="hud top"><span class="rec">● REC</span><span>RAY-BAN META</span></div>
+      <div class="hud bot"><span>drinking · one-handed</span><span class="tc">00:07:12</span></div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="cap">sampling (perception active)</div>
+    <div class="pov sampling">
+      <div class="table"></div><div class="bottle"><span class="cap2"></span></div><div class="forearm"></div>
+      <div class="vig"></div><div class="scan"></div>
+      <div class="hud top"><span class="rec">● REC</span><span>RAY-BAN META</span></div>
+      <div class="hud bot"><span>drinking · one-handed</span><span class="tc">00:07:12</span></div>
+      <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+      <div class="slabel">⊞ sampling frames…</div>
+    </div>
+  </div>
+</body>
+</html>
