@@ -1,184 +1,252 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import CadAssembly from './CadAssembly.jsx'
-import SpecView from './SpecView.jsx'
-import RayBanUpload from './RayBanUpload.jsx'
-import { extractFrames } from './frames.js'
-import { detectionToProblemSpec, detectionToDesign } from './mapping.js'
-import { PIPELINE, CAD_PARTS, TIMING } from './demoData.js'
-import { downloadStl, postJson } from '../lib/api.js'
-import { evaluateDesign } from '../sim/mujocoEval.js'
+import MultiClipUpload from './MultiClipUpload.jsx'
+import AgentWorkPanel from './AgentWorkPanel.jsx'
+import MechanicalReportPanel from './MechanicalReportPanel.jsx'
+import OptimizationTrace from './OptimizationTrace.jsx'
+import { detectionToDesign } from './mapping.js'
+import { CAD_PARTS } from './demoData.js'
+import { downloadStl } from '../lib/api.js'
 import './demo.css'
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
-// Used only when NO clip is uploaded (pure demo) or analysis can't run, so we
-// never falsely report a specific action for an unrelated clip.
-const SAMPLE = {
-  primary_action: 'sample — upload a clip to analyze', affected_side: 'right', residual_side: 'left',
-  tasks: ['reach', 'grasp'], rom: { shoulder_flexion: 110, elbow_flexion: 130, wrist_rotation: 60 },
-  residual_strength: { shoulder: 0.6 }, grip_capacity: 0.4,
-  residual_anthropometrics: { upper_arm_len: 0.3, forearm_len: 0.26, hand_length: 0.19, grip_span: 0.08 },
-  pain_points: [], source: 'sample',
-}
-
-const DESIGN_FALLBACK = { ...SAMPLE, primary_action: 'analysis unavailable — default sizing' }
+// Pipeline stage definitions for the rail
+const PIPELINE_STAGES = [
+  { key: 'upload',      name: 'Upload',       icon: '🎥', emits: 'Clips' },
+  { key: 'perception',  name: 'Perception',   icon: '👁',  emits: 'ProblemSpec × N' },
+  { key: 'design',      name: 'Design Agent', icon: '🦾', emits: 'Candidates' },
+  { key: 'sim_eval',    name: 'Sim + Mech',   icon: '🧪', emits: 'EvalResult + FoS' },
+  { key: 'rl_loop',     name: 'RL Loop',      icon: '🎮', emits: 'PolicyArtifact' },
+  { key: 'final',       name: 'Final Design', icon: '⬡',  emits: 'CAD + Report' },
+]
 
 export default function DemoPage() {
-  const [status, setStatus] = useState({})
-  const [revealed, setRevealed] = useState(0)
+  const [clips, setClips] = useState([])
   const [running, setRunning] = useState(false)
-  const [active, setActive] = useState('capture')
-  const [clip, setClip] = useState(null)
-  const [detection, setDetection] = useState(null)
-  const [design, setDesign] = useState(null)
-  const [evaluation, setEvaluation] = useState(null)
-  const [policyArtifact, setPolicyArtifact] = useState(null)
-  const [cadArtifact, setCadArtifact] = useState(null)
+  const [stageStatus, setStageStatus] = useState({})
+  const [activeStage, setActiveStage] = useState('upload')
+
+  // Pipeline outputs
+  const [clipObservations, setClipObservations] = useState([])
+  const [unifiedRequirements, setUnifiedRequirements] = useState(null)
+  const [agentFindings, setAgentFindings] = useState([])
+  const [workTraces, setWorkTraces] = useState([])
+  const [designIterations, setDesignIterations] = useState([])
+  const [mechReport, setMechReport] = useState(null)
+  const [cadParams, setCadParams] = useState(null)
+  const [revealed, setRevealed] = useState(0)
   const [exporting, setExporting] = useState(false)
+  const [stats, setStats] = useState(null)
+  const [logs, setLogs] = useState([])
+
+  const abortRef = useRef(null)
   const runId = useRef(0)
 
-  const cadParams = design || detectionToDesign(SAMPLE)
-  const action = detection?.primary_action
-
   const reset = useCallback(() => {
+    abortRef.current?.abort()
     runId.current += 1
-    setStatus({}); setRevealed(0); setRunning(false)
-    setDetection(null); setDesign(null); setEvaluation(null)
-    setPolicyArtifact(null); setCadArtifact(null); setActive('capture')
+    setRunning(false)
+    setStageStatus({})
+    setActiveStage('upload')
+    setClipObservations([])
+    setUnifiedRequirements(null)
+    setAgentFindings([])
+    setWorkTraces([])
+    setDesignIterations([])
+    setMechReport(null)
+    setCadParams(null)
+    setRevealed(0)
+    setStats(null)
+    setLogs([])
   }, [])
 
-  // Resolve each stage's output payload from live state.
-  const outputFor = useCallback((key) => {
-    switch (key) {
-      case 'capture':
-        return clip?.url
-          ? { clip: clip.name, duration_s: clip.durationS ? Number(clip.durationS) : null,
-              size_mb: Number(clip.sizeMB), saved_to: clip.serverPath || '(local preview)' }
-          : { clip: '(none — upload a Ray-Ban clip)', view: 'egocentric' }
-      case 'perception': return detectionToProblemSpec(detection)
-      case 'design': return design
-      case 'simulation': return evaluation || { status: 'not run' }
-      case 'policy': return policyArtifact || { status: 'not run' }
-      case 'cad': return cadArtifact || { status: 'not run', parts: `${revealed}/${CAD_PARTS.length}` }
-      default: return null
-    }
-  }, [clip, detection, design, evaluation, policyArtifact, cadArtifact, revealed])
+  const addLog = useCallback((msg) => setLogs((l) => [...l.slice(-49), msg]), [])
 
-  const play = useCallback(async () => {
+  const runPipeline = useCallback(async () => {
+    if (!clips.length || running) return
+    const serverPaths = clips.map((c) => c.serverPath).filter(Boolean)
+    if (!serverPaths.length) {
+      addLog('No uploaded clips — upload clips first.')
+      return
+    }
+
     runId.current += 1
     const myRun = runId.current
     const alive = () => runId.current === myRun
-    setStatus({}); setRevealed(0); setRunning(true)
-    setEvaluation(null); setPolicyArtifact(null); setCadArtifact(null)
-    let det = detection, des = design, evalResult = null
 
-    for (const stage of PIPELINE) {
-      if (!alive()) return
-      setActive(stage.key)
-      setStatus((s) => ({ ...s, [stage.key]: 'running' }))
+    abortRef.current = new AbortController()
+    setRunning(true)
+    setStageStatus({})
+    setActiveStage('perception')
+    setClipObservations([])
+    setUnifiedRequirements(null)
+    setAgentFindings([])
+    setWorkTraces([])
+    setDesignIterations([])
+    setMechReport(null)
+    setCadParams(null)
+    setRevealed(0)
+    setStats(null)
+    setLogs([])
 
-      try {
-      if (stage.key === 'perception') {
-        // Real Gemini analysis of the uploaded clip's frames.
-        const t0 = Date.now()
-        if (clip?.serverPath) {
-          det = await postJson('/api/analyze-clip', { clip_path: clip.serverPath })
-          det = { ...det, source: det.source || 'python-perception-agent' }
-        } else if (clip?.url) {
-          const frames = await extractFrames(clip.url, 6)
-          if (!alive()) return
-          if (frames.length) {
-            try {
-              const r = await fetch('/api/analyze-frames', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ frames }),
-              })
-              const j = await r.json()
-              det = j && j.primary_action ? j : { ...DESIGN_FALLBACK, source: j?.source || 'unavailable' }
-            } catch { det = { ...DESIGN_FALLBACK, source: 'error' } }
-          } else {
-            det = { ...DESIGN_FALLBACK, source: 'undecodable (try .mp4/H.264)' }
+    try {
+      const resp = await fetch('/api/run-multi-pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_paths: serverPaths, quick_mode: false }),
+        signal: abortRef.current.signal,
+      })
+
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!alive()) break
+
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+
+        for (const line of lines) {
+          const trimmed = line.replace(/^data:\s*/, '').trim()
+          if (!trimmed) continue
+          try {
+            const evt = JSON.parse(trimmed)
+            handleEvent(evt)
+          } catch {
+            // not JSON — ignore
           }
-        } else {
-          det = { ...SAMPLE }
         }
-        if (!alive()) return
-        setDetection(det)
-        await sleep(Math.max(0, 700 - (Date.now() - t0)))
-      } else if (stage.key === 'design') {
-        const baseVisuals = detectionToDesign(det)
-        des = await postJson('/api/derive-design', { problem: detectionToProblemSpec(det) })
-        des = { ...baseVisuals, ...des, source: 'python-design-agent' }
-        if (!alive()) return
-        setDesign(des)
-      } else if (stage.key === 'simulation') {
-        const taskId = `${(det?.primary_action || 'adl_task').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 28)}_v1`
-        // Run the eval in-browser via MuJoCo WASM (Vercel-friendly; no native mujoco).
-        evalResult = await evaluateDesign(des, taskId)
-        if (!alive()) return
-        setEvaluation(evalResult)
-      } else if (stage.key === 'policy') {
-        const name = `${(det?.primary_action || 'adl').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24)}_policy`
-        const artifact = await postJson('/api/build-policy', {
-          problem: detectionToProblemSpec(det), design: des, evaluation: evalResult, name,
-        })
-        if (!alive()) return
-        setPolicyArtifact(artifact)
-      } else if (stage.key === 'cad') {
-        const artifact = await postJson('/api/build-cad', { design: des, name: 'candidate' })
-        if (!alive()) return
-        setCadArtifact(artifact)
-        for (let p = 1; p <= CAD_PARTS.length; p++) {
-          if (!alive()) return
-          await sleep(TIMING.cadPerPart)
-          setRevealed(p)
-        }
-      } else {
-        await sleep(TIMING[stage.key] ?? 1500)
       }
-      } catch (error) {
-        if (!alive()) return
-        setStatus((s) => ({ ...s, [stage.key]: 'error' }))
-        if (stage.key === 'simulation') setEvaluation({ status: 'error', error: error.message })
-        if (stage.key === 'policy') setPolicyArtifact({ status: 'error', error: error.message })
-        if (stage.key === 'cad') setCadArtifact({ status: 'error', error: error.message })
-        setRunning(false)
-        return
-      }
-      if (!alive()) return
-      setStatus((s) => ({ ...s, [stage.key]: 'done' }))
+    } catch (err) {
+      if (err.name !== 'AbortError') addLog(`Error: ${err.message}`)
+    } finally {
+      if (alive()) setRunning(false)
     }
-    setRunning(false)
-  }, [clip, detection, design])
+  }, [clips, running, addLog])
+
+  const handleEvent = useCallback((evt) => {
+    const { type, stage } = evt
+    addLog(`[${stage}] ${type}`)
+
+    if (type === 'stage_start') {
+      setActiveStage(stage)
+      setStageStatus((s) => ({ ...s, [stage]: 'running' }))
+    }
+
+    if (type === 'stage_done') {
+      setStageStatus((s) => ({ ...s, [stage]: 'done' }))
+
+      if (stage === 'perception') {
+        if (evt.unified_rom) {
+          setUnifiedRequirements({
+            rom_targets_deg: evt.unified_rom,
+            design_directives: evt.design_directives || [],
+            conflicts: evt.conflicts || [],
+            primary_actions: evt.primary_actions || [],
+          })
+        }
+      }
+
+      if (stage === 'design' && evt.candidates?.length) {
+        // Use first candidate params to update 3D view
+        const c = evt.candidates[0]
+        if (c) setCadParams((prev) => ({ ...(prev || {}), ...c }))
+      }
+
+      if (stage === 'final') {
+        if (evt.stats) setStats(evt.stats)
+        if (evt.design_iterations) setDesignIterations(evt.design_iterations)
+        // Trigger CAD part reveal
+        revealParts()
+      }
+    }
+
+    if (type === 'agent_finding') {
+      if (stage === 'perception') {
+        if (evt.identified_problems) {
+          setClipObservations((prev) => {
+            const existing = prev.findIndex((o) => o.clip === evt.clip)
+            const obs = {
+              clip: evt.clip,
+              primary_action: evt.primary_action,
+              affected_side: evt.affected_side,
+              identified_problems: evt.identified_problems || [],
+            }
+            if (existing >= 0) {
+              const next = [...prev]
+              next[existing] = obs
+              return next
+            }
+            return [...prev, obs]
+          })
+        }
+      }
+      if (stage === 'design' && (evt.rationale || evt.work)) {
+        setAgentFindings((prev) => [...prev, evt])
+      }
+    }
+
+    if (type === 'work_trace') {
+      setWorkTraces((prev) => [...prev, evt])
+    }
+
+    if (type === 'mechanical_result') {
+      setMechReport({
+        components: evt.components || [],
+        total_mass_g: evt.total_mass_g || 0,
+        worst_safety_factor: evt.worst_safety_factor || 0,
+        predicted_life_years: 0,
+        weight_budget_ok: evt.weight_budget_ok || false,
+        suggestions: evt.suggestions || [],
+      })
+    }
+
+    if (type === 'sim_frame' && evt.candidate === 0) {
+      // Update 3D params from sim step (future: animate joints)
+    }
+
+    if (type === 'done') {
+      setStageStatus((s) => ({ ...s, final: 'done' }))
+    }
+
+    if (type === 'error') {
+      addLog(`ERROR: ${evt.message || JSON.stringify(evt)}`)
+      setStageStatus((s) => {
+        const k = stage || Object.keys(s).find((k) => s[k] === 'running') || 'pipeline'
+        return { ...s, [k]: 'error' }
+      })
+    }
+  }, [addLog])
+
+  const revealParts = useCallback(async () => {
+    for (let p = 1; p <= CAD_PARTS.length; p++) {
+      await new Promise((r) => setTimeout(r, 800))
+      setRevealed(p)
+    }
+  }, [])
 
   const exportStl = useCallback(async () => {
-    if (!design || exporting) return
+    const params = cadParams || {}
+    if (!params || exporting) return
     setExporting(true)
-    try { await downloadStl(design, 'candidate') }
+    try { await downloadStl(params, 'design') }
     finally { setExporting(false) }
-  }, [design, exporting])
+  }, [cadParams, exporting])
 
-  useEffect(() => () => { runId.current += 1 }, [])
+  useEffect(() => () => { abortRef.current?.abort() }, [])
 
-  const completed = PIPELINE.filter((s) => status[s.key] === 'done').length
-  const progress = Math.round((completed / PIPELINE.length) * 100)
-  const activeStage = PIPELINE.find((s) => s.key === active)
-  const activeOut = outputFor(active)
-
-  const partNote = (key) => {
-    const cm = (m) => `${Math.round(m * 100)} cm`
-    return {
-      socket: `mount · ${cadParams.mount_frame}`,
-      upper: `carbon-fiber · ${cm(cadParams.upper_arm_len)}`,
-      elbow: `hinge · k=${cadParams.joint_stiffness}`,
-      forearm: `carbon-fiber · ${cm(cadParams.forearm_len)}`,
-      wrist: 'rotary coupling',
-      gripper: `${cm(cadParams.grip_width)} aperture`,
-    }[key]
-  }
+  const completed = PIPELINE_STAGES.filter((s) => stageStatus[s.key] === 'done').length
+  const progress = Math.round((completed / PIPELINE_STAGES.length) * 100)
+  const viable = stats?.ik_success_rate >= 0.4 && (stats?.safety_factor ?? 0) >= 2.5
+  const defaultCadParams = { upper_arm_len: 0.30, forearm_len: 0.26, grip_width: 0.08,
+    joint_stiffness: 1.0, arm_radius: 0.03, primaryColor: '#0d1117', accentColor: '#00d4ff' }
 
   return (
-    <div className="demo">
+    <div className="demo demo-multi">
+      {/* ── Header ── */}
       <header className="demo-header">
         <div className="demo-brand">
           <span className="demo-logo">⬡</span>
@@ -188,94 +256,161 @@ export default function DemoPage() {
           </div>
         </div>
         <div className="demo-flow-label">
-          Ray-Ban clip <span className="arrow">→</span> Gemini perception <span className="arrow">→</span> design <span className="arrow">→</span> CAD
+          {clips.length} clip{clips.length !== 1 ? 's' : ''} → parallel perception → advanced design → sim+mech → RL
         </div>
         <div className="demo-actions">
-          <div className="demo-progress"><div className="demo-progress-bar" style={{ width: `${progress}%` }} /><span>{progress}%</span></div>
+          <div className="demo-progress">
+            <div className="demo-progress-bar" style={{ width: `${progress}%` }} />
+            <span>{progress}%</span>
+          </div>
+          {viable && <span className="badge-viable">✓ Viable</span>}
           <button className="btn ghost" onClick={() => { window.location.hash = '#studio' }}>Design Studio →</button>
           <button className="btn" onClick={reset} disabled={!completed && !running}>Reset</button>
-          <button className="btn primary" onClick={play} disabled={running}>{running ? '● Running…' : '▶ Run pipeline'}</button>
+          <button
+            className="btn primary"
+            onClick={running ? () => { abortRef.current?.abort(); setRunning(false) } : runPipeline}
+            disabled={!clips.length}
+          >
+            {running ? '■ Stop' : '▶ Run pipeline'}
+          </button>
         </div>
       </header>
 
-      {/* ── Linear agent rail (all stages, one row) ── */}
+      {/* ── Pipeline rail ── */}
       <nav className="rail">
-        {PIPELINE.map((stage, i) => {
-          const st = status[stage.key] || 'idle'
+        {PIPELINE_STAGES.map((stage, i) => {
+          const st = stageStatus[stage.key] || 'idle'
           return (
             <div className="rail-cell" key={stage.key}>
               <button
-                className={`chip ${st} ${active === stage.key ? 'focus' : ''}`}
-                onClick={() => setActive(stage.key)}
+                className={`chip ${st} ${activeStage === stage.key ? 'focus' : ''}`}
+                onClick={() => setActiveStage(stage.key)}
               >
                 <span className="chip-icon">{stage.icon}</span>
                 <span className="chip-body">
                   <span className="chip-name">{stage.name}</span>
                   <span className="chip-emit">{stage.emits}</span>
                 </span>
-                <StatusDot status={st} />
+                <span className={`dot ${st}`} />
               </button>
-              {i < PIPELINE.length - 1 && (
-                <Connector active={st === 'done'} flowing={st === 'running' || (st === 'done' && status[PIPELINE[i + 1].key] === 'running')} />
+              {i < PIPELINE_STAGES.length - 1 && (
+                <div className={`connector ${st === 'done' ? 'active' : ''}`}>
+                  <div className="conn-line" />
+                </div>
               )}
             </div>
           )
         })}
       </nav>
 
-      {/* ── Body: input + detail (left) · CAD (right) ── */}
-      <div className="body">
+      {/* ── Main body: 3 columns ── */}
+      <div className="body body-multi">
+
+        {/* Left: upload + agent work */}
         <section className="col-left">
-          <div className="panel input-panel">
-            <div className="panel-head"><span>🕶 Ray-Ban input</span>{detection && <span className="src-tag">{detection.source}</span>}</div>
-            <RayBanUpload clip={clip} onClip={setClip} sampling={status.perception === 'running'} />
+          <div className="panel">
+            <div className="panel-head">🎥 Input Clips ({clips.length})</div>
+            <MultiClipUpload clips={clips} onClips={setClips} disabled={running} />
           </div>
 
-          <div className="panel detail-panel">
-            <div className="panel-head">
-              <span>{activeStage?.icon} {activeStage?.name}</span>
-              <span className="emit-tag">{activeStage?.emits}</span>
+          <AgentWorkPanel
+            clipObservations={clipObservations}
+            workTraces={workTraces}
+            agentFindings={agentFindings}
+            unified={unifiedRequirements}
+          />
+
+          {logs.length > 0 && (
+            <div className="log-panel">
+              <div className="log-title">Pipeline log</div>
+              <div className="log-body">
+                {logs.slice(-20).map((l, i) => <div key={i} className="log-line">{l}</div>)}
+              </div>
             </div>
-            <p className="detail-blurb">{activeStage?.blurb}</p>
-            <SpecView data={activeOut} contract={activeStage?.emits} />
-          </div>
+          )}
         </section>
 
-        <section className="col-right">
+        {/* Center: 3D view + stats */}
+        <section className="col-center">
           <div className="cad-viewport">
-            <div className="cad-tag">CAD OUTPUT · {action ? `“${action}”` : 'live assembly'}</div>
-            <CadAssembly params={cadParams} revealed={revealed} />
-            {revealed === 0 && <div className="cad-empty">Run the pipeline to materialize the model</div>}
+            <div className="cad-tag">
+              CAD OUTPUT
+              {stats?.primary_action ? ` · "${stats.primary_action}"` : ''}
+              {stats?.affected_side ? ` · ${stats.affected_side} side` : ''}
+            </div>
+            <CadAssembly params={cadParams || defaultCadParams} revealed={revealed} />
+            {revealed === 0 && <div className="cad-empty">Upload clips and run the pipeline</div>}
           </div>
+
+          {/* Stats */}
+          {stats && (
+            <div className="stats-bar">
+              <div className="stat-item">
+                <div className="stat-label">IK Success</div>
+                <div className={`stat-value ${stats.ik_success_rate >= 0.4 ? 'ok' : 'warn'}`}>
+                  {(stats.ik_success_rate * 100).toFixed(0)}%
+                </div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-label">RL Success</div>
+                <div className={`stat-value ${stats.rl_success_rate >= 0.65 ? 'ok' : 'warn'}`}>
+                  {(stats.rl_success_rate * 100).toFixed(0)}%
+                </div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-label">DOF</div>
+                <div className="stat-value ok">{stats.dof}</div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-label">Mass</div>
+                <div className={`stat-value ${(stats.total_mass_g || 0) <= 900 ? 'ok' : 'warn'}`}>
+                  {(stats.total_mass_g || 0).toFixed(0)} g
+                </div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-label">Safety Factor</div>
+                <div className={`stat-value ${(stats.safety_factor || 0) >= 2.5 ? 'ok' : 'warn'}`}>
+                  {(stats.safety_factor || 0).toFixed(2)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <OptimizationTrace iterations={designIterations} />
+        </section>
+
+        {/* Right: parts list + mechanical analysis */}
+        <section className="col-right">
           <aside className="cad-side">
+            <div className="cad-side-title">Components</div>
             <ol className="parts">
               {CAD_PARTS.map((p, i) => {
-                const done = revealed > i, building = revealed === i && running
+                const done = revealed > i
+                const building = revealed === i && running
                 return (
                   <li key={p.key} className={done ? 'done' : building ? 'building' : ''}>
                     <span className="part-dot" />
-                    <div><div className="part-label">{p.label}</div><div className="part-note">{partNote(p.key)}</div></div>
+                    <div>
+                      <div className="part-label">{p.label}</div>
+                      <div className="part-note">{p.note}</div>
+                    </div>
                     <span className="part-state">{done ? '✓' : building ? '⚙' : ''}</span>
                   </li>
                 )
               })}
             </ol>
-            <button className="btn primary block" disabled={revealed < CAD_PARTS.length}
-              onClick={exportStl}>{exporting ? 'Exporting…' : '⬇ Export STL'}</button>
+            <button
+              className="btn primary block"
+              disabled={revealed < CAD_PARTS.length || exporting}
+              onClick={exportStl}
+            >
+              {exporting ? 'Exporting…' : '⬇ Export STL'}
+            </button>
           </aside>
+
+          <MechanicalReportPanel report={mechReport} />
         </section>
       </div>
-
-    </div>
-  )
-}
-
-function StatusDot({ status }) { return <span className={`dot ${status || 'idle'}`} /> }
-
-function Connector({ active, flowing }) {
-  return (
-    <div className={`connector ${active ? 'active' : ''} ${flowing ? 'flowing' : ''}`}>
-      <div className="conn-line"><span className="packet" /></div>
     </div>
   )
 }

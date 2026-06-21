@@ -196,7 +196,7 @@ class DesignAgent:
                 v["upper_m"], v["forearm_m"], grip_w, v["stiffness"],
                 elbow=v["elbow"], wrist=v["wrist"], mount_frame=mount,
             )
-            if not self.validate(params, reach):
+            if not self.validate(params, reach):  # validate() returns errors list; empty = valid
                 candidates.append((params, hints))
             if len(candidates) >= n:
                 break

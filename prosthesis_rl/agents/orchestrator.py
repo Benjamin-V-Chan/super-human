@@ -81,24 +81,31 @@ class ProsthesisLoop:
 
         return self.run(clip_path)
 
-    def run_optimized(
+    def run_multi(
         self,
-        clip_path: str | Path,
+        clip_paths: list[str | Path],
         emit=None,
         quick_mode: bool = False,
     ) -> dict[str, Any]:
-        """Full iterative CAD↔sim RL feedback loop with SSE streaming.
+        """Multi-clip full pipeline: parallel perception → advanced design → RL.
 
         Args:
-            clip_path: path to ADL video clip
+            clip_paths: list of ADL video clip paths
             emit: Emitter instance for SSE streaming (created if None)
             quick_mode: reduce seeds/timesteps for fast demo
-
-        Returns result dict with best_params, stats, trajectory, rl_result.
         """
         from prosthesis_rl.pipeline.events import Emitter
         from prosthesis_rl.pipeline.loop import DesignOptimizationLoop
 
         emitter = emit or Emitter()
         loop = DesignOptimizationLoop(quick_mode=quick_mode)
-        return loop.run(clip_path, emitter)
+        return loop.run_multi([str(p) for p in clip_paths], emitter)
+
+    def run_optimized(
+        self,
+        clip_path: str | Path,
+        emit=None,
+        quick_mode: bool = False,
+    ) -> dict[str, Any]:
+        """Single-clip full pipeline (backward compatible — delegates to run_multi)."""
+        return self.run_multi([str(clip_path)], emit=emit, quick_mode=quick_mode)

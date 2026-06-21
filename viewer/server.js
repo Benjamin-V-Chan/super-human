@@ -291,9 +291,44 @@ When answering questions only:
 
 Be brief and precise. You can explain biomechanical trade-offs.`
 
-// SSE helper
+// ── SSE helpers ───────────────────────────────────────────────────────────────
 function sendSSE(res, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`)
+}
+
+function openSSE(res) {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+}
+
+function streamPipelineEvents(child, res, onDone) {
+  let buf = ''
+  child.stdout.on('data', (chunk) => {
+    buf += chunk.toString()
+    const lines = buf.split('\n')
+    buf = lines.pop()
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const evt = JSON.parse(trimmed)
+        sendSSE(res, evt)
+      } catch {
+        // non-JSON stdout (print statements etc.) — forward as a log event
+        sendSSE(res, { type: 'log', message: trimmed })
+      }
+    }
+  })
+  child.stderr.on('data', (chunk) => {
+    const msg = chunk.toString().trim()
+    if (msg) sendSSE(res, { type: 'log', message: msg })
+  })
+  child.on('close', (code) => {
+    sendSSE(res, { type: 'done', exit_code: code })
+    res.end()
+    if (onDone) onDone(code)
+  })
 }
 
 app.post('/api/design', async (req, res) => {
@@ -387,5 +422,76 @@ app.post('/api/chat', async (req, res) => {
   }
 })
 
+// ── Multi-clip upload ─────────────────────────────────────────────────────────
+const uploadMulti = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /video\/(mp4|quicktime)/.test(file.mimetype) || /\.(mp4|mov)$/i.test(file.originalname)
+    cb(ok ? null : new Error('Only .mp4 / .mov files are accepted'), ok)
+  },
+})
+
+app.post('/api/upload-clips', (req, res) => {
+  uploadMulti.array('clips', 10)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message })
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files received' })
+    res.json({
+      saved: true,
+      files: req.files.map((f) => ({
+        name: f.filename,
+        path: `test_vids/${f.filename}`,
+        size: f.size,
+      })),
+    })
+  })
+})
+
+// ── Multi-clip pipeline (SSE stream) ──────────────────────────────────────────
+// Spawns Python run_multi_pipeline.py and forwards newline-delimited JSON events
+// as SSE to the browser.
+const MULTI_PIPELINE_SCRIPT = path.resolve(REPO_ROOT, 'scripts', 'run_multi_pipeline.py')
+
+app.post('/api/run-multi-pipeline', (req, res) => {
+  const { clip_paths: clipPaths = [], quick_mode: quickMode = false } = req.body || {}
+  if (!Array.isArray(clipPaths) || clipPaths.length === 0) {
+    return res.status(400).json({ error: 'clip_paths array is required' })
+  }
+
+  // Validate paths are under test_vids/
+  const resolvedPaths = []
+  for (const p of clipPaths) {
+    const full = path.resolve(REPO_ROOT, p)
+    if (!full.startsWith(CLIP_DIR + path.sep) || !fs.existsSync(full)) {
+      return res.status(400).json({ error: `Invalid or missing clip path: ${p}` })
+    }
+    resolvedPaths.push(full)
+  }
+
+  openSSE(res)
+  sendSSE(res, { type: 'pipeline_start', clip_paths: clipPaths, n_clips: clipPaths.length })
+
+  const pythonBin = process.env.ARMASAI_PYTHON
+    || path.join(REPO_ROOT, '.venv', 'bin', 'python3')
+    || 'python3'
+
+  const child = spawn(
+    fs.existsSync(path.join(REPO_ROOT, '.venv', 'bin', 'python3'))
+      ? path.join(REPO_ROOT, '.venv', 'bin', 'python3')
+      : (process.env.ARMASAI_PYTHON || 'python3'),
+    [MULTI_PIPELINE_SCRIPT],
+    {
+      env: { ...process.env, PYTHONPATH: REPO_ROOT },
+      timeout: 30 * 60 * 1000, // 30 min max
+    }
+  )
+
+  child.stdin.write(JSON.stringify({ clip_paths: resolvedPaths, quick_mode: quickMode }))
+  child.stdin.end()
+
+  streamPipelineEvents(child, res, null)
+})
+
+// ── App listen ────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => console.log(`Armasai server :${PORT}`))

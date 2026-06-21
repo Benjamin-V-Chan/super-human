@@ -1,10 +1,12 @@
 """Iterative CAD ↔ physics-sim RL feedback loop.
 
-Drives the full prosthesis pipeline from raw video clip to a trained,
-validated RL policy, iterating CAD design parameters until the arm passes
-stress-test thresholds.
+Drives the full prosthesis pipeline from one or more video clips to a trained,
+validated RL policy, iterating CAD design parameters until the arm passes all
+viability gates (IK success, RL success, mechanical safety, weight budget).
 
     loop = DesignOptimizationLoop()
+    result = loop.run_multi(["clip1.mp4", "clip2.mp4"], emit=emitter)
+    # backward compat:
     result = loop.run("test_vids/clip.mov", emit=emitter)
 
 Events emitted via `emit` (PipelineEvent) are consumed by pipeline_server.py
@@ -14,17 +16,20 @@ and forwarded to the browser as SSE.
 from __future__ import annotations
 
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
 from prosthesis_rl.pipeline.events import Emitter, PipelineEvent
 
 # ── Thresholds / loop constants ────────────────────────────────────────────────
-TARGET_IK_SUCCESS  = 0.40   # scripted IK — exit early without RL if met
-TARGET_RL_SUCCESS  = 0.65   # with RL policy — final pass/fail gate
-MAX_DESIGN_ITER    = 4      # max design refinement iterations
-RL_TIMESTEPS_QUICK = 30_000  # per loop iteration (fast feedback)
-RL_TIMESTEPS_FINAL = 100_000 # final winner training
+TARGET_IK_SUCCESS    = 0.40   # scripted IK — early exit without RL
+TARGET_RL_SUCCESS    = 0.65   # RL policy final gate
+TARGET_SAFETY_FACTOR = 2.5    # mechanical gate
+TARGET_WEIGHT_G      = 900.0  # mass budget gate
+MAX_DESIGN_ITER      = 4      # max design refinement iterations
+RL_TIMESTEPS_QUICK   = 30_000
+RL_TIMESTEPS_FINAL   = 100_000
 
 
 class DesignOptimizationLoop:
@@ -51,22 +56,464 @@ class DesignOptimizationLoop:
         # it back so the arm practises the actual action, not a floating dot.
         self._scenario = None
 
-    # ── Public entry point ─────────────────────────────────────────────────────
+    # ── Public entry points ────────────────────────────────────────────────────
 
     def run(self, clip_path: str | Path, emit: Emitter) -> dict[str, Any]:
-        """Run the full pipeline; emit SSE events; return result dict."""
-        clip_path = str(clip_path)
-        t0 = time.perf_counter()
+        """Run single-clip pipeline (backward compatible)."""
+        return self.run_multi([str(clip_path)], emit)
 
+    def run_multi(self, clip_paths: list[str | Path], emit: Emitter) -> dict[str, Any]:
+        """Run the full multi-clip pipeline; emit SSE events; return result dict."""
+        clip_paths = [str(p) for p in clip_paths]
+        t0 = time.perf_counter()
         try:
-            return self._run_inner(clip_path, emit, t0)
+            return self._run_inner_multi(clip_paths, emit, t0)
         except Exception as exc:
             emit.emit(PipelineEvent("error", "pipeline", {"message": str(exc)}))
             raise
         finally:
             emit.close()
 
-    # ── Internal pipeline ──────────────────────────────────────────────────────
+    # ── Multi-clip pipeline ────────────────────────────────────────────────────
+
+    def _run_inner_multi(
+        self, clip_paths: list[str], emit: Emitter, t0: float
+    ) -> dict[str, Any]:
+        from prosthesis_rl.agents.advanced_design import AdvancedDesignAgent
+        from prosthesis_rl.agents.cad_agent import CadAgent
+        from prosthesis_rl.agents.cad_spec import DesignSpecLayer
+        from prosthesis_rl.agents.problem_synthesis import ProblemSynthesisAgent
+        from prosthesis_rl.agents.scenario import ScenarioAgent
+        from prosthesis_rl.cad.bridge import CadBridge
+        from prosthesis_rl.contracts import DesignIteration, MechanicalReport
+        from prosthesis_rl.sim.mechanical_analysis import MechanicalAnalysis
+        from prosthesis_rl.sim.verifier import Verifier
+
+        cad_agent     = CadAgent()
+        cad_bridge    = CadBridge()
+        verifier      = Verifier()
+        adv_design    = AdvancedDesignAgent()
+        spec_layer    = DesignSpecLayer()
+
+        # ── Stage 1: Multi-clip problem synthesis ─────────────────────────────
+        emit.emit(PipelineEvent("stage_start", "perception", {"n_clips": len(clip_paths)}))
+        t1 = time.perf_counter()
+
+        synthesis_agent = ProblemSynthesisAgent()
+
+        def _clip_cb(event: str, data: dict) -> None:
+            emit.emit(PipelineEvent("agent_finding", "perception", {"event": event, **data}))
+
+        observations, requirements = synthesis_agent.run(clip_paths, emit_cb=_clip_cb)
+
+        # Emit per-clip findings
+        for obs in observations:
+            emit.emit(PipelineEvent("agent_finding", "perception", {
+                "clip": obs.clip_path,
+                "primary_action": obs.problem.primary_action,
+                "affected_side": obs.problem.affected_side,
+                "identified_problems": [
+                    {
+                        "id": p.problem_id,
+                        "description": p.description,
+                        "severity": p.severity,
+                        "solutions": p.proposed_solutions,
+                    }
+                    for p in obs.identified_problems
+                ],
+            }))
+
+        emit.emit(PipelineEvent("stage_done", "perception", {
+            "n_clips": len(clip_paths),
+            "n_problems_found": sum(len(o.identified_problems) for o in observations),
+            "primary_actions": requirements.primary_actions,
+            "unified_rom": requirements.rom_targets_deg,
+            "design_directives": requirements.design_directives,
+            "conflicts": requirements.conflicts,
+            "elapsed_s": round(time.perf_counter() - t1, 2),
+        }))
+
+        # Use first clip's problem for scenario/RL training
+        primary_problem = observations[0].problem if observations else None
+
+        # ── Stage 1b: Scenario ────────────────────────────────────────────────
+        from prosthesis_rl.contracts import ProblemSpec
+        self._scenario = None
+        if primary_problem is not None:
+            try:
+                self._scenario = ScenarioAgent().derive(primary_problem)
+                sc = self._scenario
+                emit.emit(PipelineEvent("stage_done", "scenario", {
+                    "task_id": sc.task_id,
+                    "posture": sc.posture,
+                    "source": sc.source,
+                }))
+            except Exception:
+                pass
+
+        # ── Stage 2: Advanced design candidates ──────────────────────────────
+        emit.emit(PipelineEvent("stage_start", "design", {}))
+        t2 = time.perf_counter()
+
+        adv_candidates = adv_design.propose_diverse_candidates(
+            requirements, n=self.n_candidates, seed=0
+        )
+        # Convert to (DesignParams, control_hints) pairs for existing sim loop
+        candidates = [
+            (c.params, {"ik_weight": 1.0, "grip_force_target": 0.35})
+            for c in adv_candidates
+        ]
+        adv_map = {id(c.params): c for c in adv_candidates}
+
+        instruction = spec_layer.build(primary_problem) if primary_problem else ""
+
+        emit.emit(PipelineEvent("stage_done", "design", {
+            "n_candidates": len(adv_candidates),
+            "candidates": [
+                {
+                    "topology": c.params.mount_frame,
+                    "dof": c.params.dof,
+                    "links": [lk.name for lk in c.params.links],
+                    "upper_m": c.params.upper_arm_len,
+                    "fore_m": c.params.forearm_len,
+                    "terminal_device": c.terminal_device.td_type,
+                    "rationale": c.rationale[:120],
+                    "work": c.work,
+                }
+                for c in adv_candidates
+            ],
+            "elapsed_s": round(time.perf_counter() - t2, 2),
+        }))
+
+        # ── Iteration loop ─────────────────────────────────────────────────────
+        best_params      = None
+        best_hints: dict = {}
+        best_eval        = None
+        best_name        = "iter0_c0"
+        best_mesh_dir    = None
+        best_adv_cand    = adv_candidates[0] if adv_candidates else None
+        best_mech_report: MechanicalReport | None = None
+        design_iterations: list[DesignIteration] = []
+        iteration        = 0
+        rl_result        = None
+        design_feedback: dict = {}
+
+        current_candidates = candidates
+        current_adv_cands  = adv_candidates
+
+        for iteration in range(MAX_DESIGN_ITER + 1):
+            # ── Stage 4: CAD generation ───────────────────────────────────────
+            emit.emit(PipelineEvent("stage_start", "cad", {
+                "iteration": iteration, "n_candidates": len(current_candidates),
+            }))
+            cad_outputs = []
+            for ci, (params, hints) in enumerate(current_candidates):
+                name = f"iter{iteration}_c{ci}"
+                try:
+                    cad_out = cad_agent.generate(instruction, params, name=name)
+                except Exception:
+                    from prosthesis_rl.agents.cad_agent import CadOutput
+                    import os
+                    cad_out = CadOutput(
+                        build_sheet="fallback", material="PA12",
+                        mesh_dir=str(cad_bridge.export_arm(params, name=name)),
+                        mjcf_path="",
+                    )
+                cad_outputs.append((name, cad_out, params, hints))
+                adv_cand = current_adv_cands[ci] if ci < len(current_adv_cands) else None
+                emit.emit(PipelineEvent("stage_done", "cad", {
+                    "iteration": iteration, "candidate": ci, "name": name,
+                    "material": cad_out.material,
+                    "components": [
+                        {"name": c.name, "material": c.material, "mass_g": c.mass_g}
+                        for c in (adv_cand.components if adv_cand else [])
+                    ],
+                }))
+
+            # ── Stage 5: Physics sim evaluation + mechanical analysis ─────────
+            emit.emit(PipelineEvent("stage_start", "sim_eval", {"iteration": iteration}))
+            from prosthesis_rl.agents.design import DesignAgent
+            design_agent_compat = DesignAgent()
+            eval_results = []
+            mech_reports: list[MechanicalReport] = []
+
+            for ci, (name, cad_out, params, hints) in enumerate(cad_outputs):
+                full_eval = design_agent_compat.evaluate_candidates(
+                    [(params, hints)],
+                    primary_problem or ProblemSpec(),
+                    verifier,
+                    cad_bridge,
+                    n_seeds=self.n_seeds,
+                    emit_cb=self._make_frame_cb(emit, iteration, ci),
+                )
+                eval_results.extend(full_eval)
+
+                # Mechanical analysis
+                adv_cand = current_adv_cands[ci] if ci < len(current_adv_cands) else None
+                comps = adv_cand.components if adv_cand else []
+                load_cases = MechanicalAnalysis._estimate_load_cases(params)
+                mech = MechanicalAnalysis.run(params, comps, load_cases)
+                mech_reports.append(mech)
+
+                er = full_eval[0]
+                emit.emit(PipelineEvent("sim_frame", "sim_eval", {
+                    "iteration": iteration, "candidate": ci,
+                    "success_rate": round(er.success_rate, 3),
+                    "mean_reward": round(er.mean_reward, 3),
+                    "mean_energy": round(er.mean_energy, 1),
+                    "peak_stress_mpa": round(er.peak_stress_mpa, 2),
+                    "predicted_life_years": min(er.predicted_life_years, 999.9),
+                }))
+                emit.emit(PipelineEvent("mechanical_result", "sim_eval", {
+                    "iteration": iteration, "candidate": ci,
+                    "total_mass_g": mech.total_mass_g,
+                    "worst_safety_factor": mech.worst_safety_factor,
+                    "weight_budget_ok": mech.weight_budget_ok,
+                    "suggestions": mech.suggestions,
+                    "components": mech.components,
+                }))
+
+            # Pick best candidate
+            best_i, rationale = design_agent_compat.compare(
+                [c for c, _ in current_candidates], eval_results
+            )
+            best_er       = eval_results[best_i]
+            best_mech_i   = mech_reports[best_i]
+            best_name_i   = cad_outputs[best_i][0]
+            best_params_i = cad_outputs[best_i][2]
+            best_hints_i  = cad_outputs[best_i][3]
+            best_mesh_i   = cad_outputs[best_i][1].mesh_dir
+            best_adv_i    = current_adv_cands[best_i] if best_i < len(current_adv_cands) else None
+
+            if best_eval is None or best_er.mean_reward > best_eval.mean_reward:
+                best_params      = best_params_i
+                best_hints       = best_hints_i
+                best_eval        = best_er
+                best_name        = best_name_i
+                best_mesh_dir    = best_mesh_i
+                best_adv_cand    = best_adv_i
+                best_mech_report = best_mech_i
+
+            # Record design iteration with full work trace
+            di = DesignIteration(
+                iteration=iteration,
+                problems_addressed=list(requirements.design_directives),
+                solution_chosen=rationale,
+                design_params=best_params_i,
+                ik_success_rate=round(best_er.success_rate, 3),
+                rl_success_rate=0.0,
+                mechanical_report=best_mech_i,
+                rationale=f"{rationale} | mech FoS={best_mech_i.worst_safety_factor:.2f} mass={best_mech_i.total_mass_g:.0f}g",
+                components=best_adv_i.components if best_adv_i else [],
+                terminal_device=best_adv_i.terminal_device if best_adv_i else None,
+            )
+            design_iterations.append(di)
+
+            emit.emit(PipelineEvent("work_trace", "sim_eval", {
+                "iteration": iteration,
+                "best_index": best_i,
+                "best_success": round(best_er.success_rate, 3),
+                "best_reward": round(best_er.mean_reward, 3),
+                "safety_factor": best_mech_i.worst_safety_factor,
+                "total_mass_g": best_mech_i.total_mass_g,
+                "weight_ok": best_mech_i.weight_budget_ok,
+                "rationale": rationale,
+                "directives_addressed": requirements.design_directives,
+                "suggestions": best_mech_i.suggestions,
+            }))
+
+            emit.emit(PipelineEvent("stage_done", "sim_eval", {
+                "iteration": iteration,
+                "n_candidates": len(eval_results),
+                "best_index": best_i,
+                "best_success": round(best_er.success_rate, 3),
+                "best_reward": round(best_er.mean_reward, 3),
+                "rationale": rationale,
+            }))
+
+            # Viability check: IK + mechanical
+            ik_ok   = best_er.success_rate >= TARGET_IK_SUCCESS
+            mech_ok = best_mech_i.viable
+            if ik_ok and mech_ok:
+                break
+
+            if iteration >= MAX_DESIGN_ITER:
+                break
+
+            # Build rich feedback for next iteration
+            design_feedback = {
+                "ik_success_rate":    best_er.success_rate,
+                "mean_energy":        best_er.mean_energy,
+                "worst_safety_factor": best_mech_i.worst_safety_factor,
+                "total_mass_g":       best_mech_i.total_mass_g,
+                "suggestions":        best_mech_i.suggestions,
+                "rl_success_rate":    0.0,
+            }
+            new_adv = adv_design.propose_from_feedback(
+                requirements, design_feedback,
+                prev_candidate=best_adv_cand or adv_candidates[0],
+                seed=iteration + 1,
+            )
+            current_candidates = [(new_adv.params, {"ik_weight": 1.0, "grip_force_target": 0.35})]
+            current_adv_cands  = [new_adv]
+            emit.emit(PipelineEvent("agent_finding", "design", {
+                "iteration": iteration + 1,
+                "rationale": new_adv.rationale,
+                "work": new_adv.work,
+                "topology": [lk.name for lk in new_adv.params.links],
+                "terminal_device": new_adv.terminal_device.td_type,
+            }))
+
+        # ── Stage 6: RL optimization loop ─────────────────────────────────────
+        emit.emit(PipelineEvent("stage_start", "rl_loop", {
+            "design_name": best_name,
+            "ik_success_rate": round(best_eval.success_rate if best_eval else 0.0, 3),
+        }))
+
+        rl_result = self._run_rl(
+            best_params, best_name, emit,
+            timesteps=self._rl_quick,
+            iteration=0,
+            mesh_dir=best_mesh_dir,
+        )
+        rl_success = rl_result.get("eval", {}).get("success_rate", 0.0)
+
+        if rl_success < TARGET_RL_SUCCESS and not self.quick_mode:
+            rl_feedback = {**design_feedback, "rl_success_rate": rl_success}
+            refined_adv = adv_design.propose_from_feedback(
+                requirements, rl_feedback,
+                prev_candidate=best_adv_cand or adv_candidates[0],
+                seed=MAX_DESIGN_ITER + 10,
+            )
+            ref_params = refined_adv.params
+            ref_name = "rl_refined"
+            ref_instr = instruction
+            try:
+                ref_cad = cad_agent.generate(ref_instr, ref_params, name=ref_name)
+            except Exception:
+                ref_mesh = cad_bridge.export_arm(ref_params, name=ref_name)
+                from prosthesis_rl.agents.cad_agent import CadOutput
+                ref_cad = CadOutput(build_sheet="fallback", material="PA12",
+                                    mesh_dir=str(ref_mesh), mjcf_path="")
+            rl_result2 = self._run_rl(
+                ref_params, ref_name, emit,
+                timesteps=self._rl_final, iteration=1,
+                mesh_dir=ref_cad.mesh_dir,
+            )
+            if rl_result2.get("eval", {}).get("success_rate", 0.0) > rl_success:
+                best_params  = ref_params
+                best_name    = ref_name
+                best_mesh_dir = ref_cad.mesh_dir
+                rl_result    = rl_result2
+                best_adv_cand = refined_adv
+
+        final_rl = self._run_rl(
+            best_params, f"{best_name}_final", emit,
+            timesteps=self._rl_final, iteration="final",
+            mesh_dir=best_mesh_dir,
+            resume_from=rl_result.get("policy"),
+        )
+        rl_result = final_rl
+
+        # Update last DesignIteration with RL result
+        if design_iterations:
+            di = design_iterations[-1]
+            design_iterations[-1] = DesignIteration(
+                iteration=di.iteration,
+                problems_addressed=di.problems_addressed,
+                solution_chosen=di.solution_chosen,
+                design_params=di.design_params,
+                ik_success_rate=di.ik_success_rate,
+                rl_success_rate=round(rl_result.get("eval", {}).get("success_rate", 0.0), 3),
+                mechanical_report=di.mechanical_report,
+                rationale=di.rationale,
+                components=di.components,
+                terminal_device=di.terminal_device,
+            )
+
+        emit.emit(PipelineEvent("stage_done", "rl_loop", {
+            "policy_path": rl_result.get("policy", ""),
+            "rl_success_rate": round(rl_result.get("eval", {}).get("success_rate", 0.0), 3),
+            "timesteps": rl_result.get("timesteps", 0),
+        }))
+
+        # ── Stage 7: Final output ──────────────────────────────────────────────
+        emit.emit(PipelineEvent("stage_start", "final", {}))
+        trajectory = self._run_trajectory(best_params, rl_result, best_mesh_dir)
+
+        stats = _build_stats(
+            primary_problem, best_eval, rl_result, best_params, best_name,
+            iteration, t0, best_mech_report,
+        )
+        if self._scenario is not None:
+            stats["scenario_task"]    = self._scenario.task_id
+            stats["scenario_posture"] = self._scenario.posture
+
+        from prosthesis_rl.agents.design import DesignAgent as _DA
+        rationale_text = _DA().rationale_report(
+            [best_params], [best_eval] if best_eval else [], 0,
+            "Best design from multi-clip optimization",
+            action=", ".join(requirements.primary_actions),
+        ) if best_eval else "No evaluation completed."
+
+        # Build AgentWorkReport
+        from prosthesis_rl.contracts import AgentWorkReport, UnifiedRequirements
+        work_report = AgentWorkReport(
+            clip_observations=observations,
+            unified_requirements=requirements,
+            design_iterations=design_iterations,
+            final_mechanical_report=best_mech_report or MechanicalReport(),
+            final_design_rationale=rationale_text,
+            viable=bool(
+                (best_eval and best_eval.success_rate >= TARGET_IK_SUCCESS)
+                and (best_mech_report and best_mech_report.viable)
+            ),
+        )
+
+        emit.emit(PipelineEvent("stage_done", "final", {
+            "best_name": best_name,
+            "rationale": rationale_text,
+            "trajectory": trajectory,
+            "stats": stats,
+            "rl_policy": rl_result.get("policy", ""),
+            "elapsed_total_s": round(time.perf_counter() - t0, 1),
+            "design_iterations": [
+                {
+                    "iteration": di.iteration,
+                    "ik_success_rate": di.ik_success_rate,
+                    "rl_success_rate": di.rl_success_rate,
+                    "safety_factor": di.mechanical_report.worst_safety_factor,
+                    "mass_g": di.mechanical_report.total_mass_g,
+                    "rationale": di.rationale,
+                    "problems_addressed": di.problems_addressed,
+                }
+                for di in design_iterations
+            ],
+            "work_report": {
+                "n_clips": len(observations),
+                "n_problems_found": sum(len(o.identified_problems) for o in observations),
+                "n_design_iterations": len(design_iterations),
+                "viable": work_report.viable,
+                "final_mass_g": best_mech_report.total_mass_g if best_mech_report else 0,
+                "final_safety_factor": best_mech_report.worst_safety_factor if best_mech_report else 0,
+            },
+        }))
+        emit.emit(PipelineEvent("done", "pipeline", {"stats": stats}))
+
+        return {
+            "best_params":   best_params,
+            "best_eval":     best_eval,
+            "rl_result":     rl_result,
+            "stats":         stats,
+            "trajectory":    trajectory,
+            "best_name":     best_name,
+            "best_index":    0,
+            "work_report":   work_report,
+            "mech_report":   best_mech_report,
+            "design_iterations": design_iterations,
+        }
+
+    # ── Legacy single-clip internal pipeline ───────────────────────────────────
 
     def _run_inner(
         self, clip_path: str, emit: Emitter, t0: float
@@ -518,7 +965,7 @@ def _make_sim_feedback_from_rl(rl_result: dict) -> "SimFeedback":
 
 def _build_stats(
     problem, best_eval, rl_result: dict | None, params, best_name: str,
-    iteration: int, t0: float,
+    iteration: int, t0: float, mech_report=None,
 ) -> dict[str, Any]:
     """Collect final statistics for the dashboard stats panel."""
     from prosthesis_rl.contracts import DesignParams
@@ -528,7 +975,6 @@ def _build_stats(
 
     reach_mm = int(sum(lk.length for lk in params.links) * 1000)
 
-    # Joint positions (cumulative along chain)
     joint_pos: dict[str, list] = {}
     offset = 0.0
     for lk in params.links:
@@ -536,21 +982,28 @@ def _build_stats(
             joint_pos[jd.name] = [0.0, -round(offset * 1000, 1), 0.0]
         offset += lk.length
 
+    primary_action = getattr(problem, "primary_action", "") if problem else ""
+    affected_side  = getattr(problem, "affected_side", "") if problem else ""
+
     return {
-        "material":           "PA12-CF",
-        "reach_envelope_mm":  reach_mm,
-        "dof":                params.dof,
-        "joint_names":        params.joint_names,
-        "joint_positions_mm": joint_pos,
-        "ik_success_rate":    round(getattr(best_eval, "success_rate", 0.0), 3) if best_eval else 0.0,
-        "rl_success_rate":    round(rl_result.get("eval", {}).get("success_rate", 0.0), 3) if rl_result else 0.0,
-        "mean_energy_j":      round(getattr(best_eval, "mean_energy", 0.0), 1) if best_eval else 0.0,
+        "material":             "PA12-CF",
+        "reach_envelope_mm":    reach_mm,
+        "dof":                  params.dof,
+        "joint_names":          params.joint_names,
+        "link_names":           [lk.name for lk in params.links],
+        "joint_positions_mm":   joint_pos,
+        "ik_success_rate":      round(getattr(best_eval, "success_rate", 0.0), 3) if best_eval else 0.0,
+        "rl_success_rate":      round(rl_result.get("eval", {}).get("success_rate", 0.0), 3) if rl_result else 0.0,
+        "mean_energy_j":        round(getattr(best_eval, "mean_energy", 0.0), 1) if best_eval else 0.0,
         "predicted_life_years": min(getattr(best_eval, "predicted_life_years", 99.0), 999.0) if best_eval else 99.0,
-        "peak_stress_mpa":    round(getattr(best_eval, "peak_stress_mpa", 0.0), 2) if best_eval else 0.0,
-        "primary_action":     problem.primary_action,
-        "affected_side":      problem.affected_side,
-        "best_name":          best_name,
-        "iteration_count":    iteration,
-        "rl_timesteps":       rl_result.get("timesteps", 0) if rl_result else 0,
-        "elapsed_s":          round(time.perf_counter() - t0, 1),
+        "peak_stress_mpa":      round(getattr(best_eval, "peak_stress_mpa", 0.0), 2) if best_eval else 0.0,
+        "total_mass_g":         mech_report.total_mass_g if mech_report else 0.0,
+        "safety_factor":        mech_report.worst_safety_factor if mech_report else 0.0,
+        "weight_budget_ok":     mech_report.weight_budget_ok if mech_report else False,
+        "primary_action":       primary_action,
+        "affected_side":        affected_side,
+        "best_name":            best_name,
+        "iteration_count":      iteration,
+        "rl_timesteps":         rl_result.get("timesteps", 0) if rl_result else 0,
+        "elapsed_s":            round(time.perf_counter() - t0, 1),
     }

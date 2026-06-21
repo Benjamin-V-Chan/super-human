@@ -345,3 +345,109 @@ class EvalResult(_JsonContract):
         if not 0.0 <= self.collision_rate <= 1.0:
             problems.append("collision_rate must be between 0 and 1")
         return problems
+
+
+# ── Multi-clip / advanced pipeline contracts ──────────────────────────────────
+
+@dataclass
+class IdentifiedProblem:
+    """A functional limitation identified by a specialized perception sub-agent."""
+
+    problem_id: str = ""          # e.g. "limited_elbow_flexion", "weak_grip"
+    description: str = ""
+    severity: float = 0.5         # 0 (cosmetic) → 1 (critical ADL blocker)
+    affected_tasks: list[str] = field(default_factory=list)
+    proposed_solutions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ClipObservation:
+    """Perception output for a single video clip."""
+
+    clip_path: str = ""
+    problem: ProblemSpec = field(default_factory=ProblemSpec)
+    identified_problems: list[IdentifiedProblem] = field(default_factory=list)
+
+
+@dataclass
+class UnifiedRequirements:
+    """Cross-clip requirements synthesized by ProblemSynthesisAgent."""
+
+    tasks: list[dict] = field(default_factory=list)
+    rom_targets_deg: dict[str, float] = field(default_factory=dict)
+    grip_capacity: float = 0.0
+    anthropometrics: dict[str, float] = field(default_factory=dict)
+    design_directives: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    affected_side: str = "right"
+    primary_actions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ComponentSpec:
+    """Physical specification for one prosthetic component."""
+
+    name: str = ""
+    component_type: str = "pylon"   # "socket"|"pylon"|"joint_unit"|"terminal_device"
+    material: str = "PA12"          # "Ti-6Al-4V"|"CFRP-PA12"|"PA12"|"PETG"
+    length_mm: float = 0.0
+    wall_thickness_mm: float = 3.0
+    outer_radius_mm: float = 25.0
+    mass_g: float = 0.0             # computed: geometry × density
+    manufacturing: str = "FDM"      # "FDM"|"SLA"|"machined"|"carbon-layup"
+
+
+@dataclass
+class TerminalDeviceSpec:
+    """Terminal device (end-effector) specification."""
+
+    td_type: str = "pinch_prehensor"  # "vo_hook"|"pinch_prehensor"|"passive_hand"|"myoelectric_hand"
+    grip_patterns: list[str] = field(default_factory=lambda: ["pinch", "cylindrical"])
+    max_grip_force_n: float = 30.0
+    weight_g: float = 180.0
+    active_dof: int = 1
+
+
+@dataclass
+class MechanicalReport:
+    """Beam-theory mechanical analysis of a prosthetic design."""
+
+    components: list[dict] = field(default_factory=list)
+    total_mass_g: float = 0.0
+    worst_safety_factor: float = 0.0
+    peak_stress_mpa: float = 0.0
+    predicted_life_years: float = 0.0
+    weight_budget_ok: bool = False
+    suggestions: list[str] = field(default_factory=list)
+
+    @property
+    def viable(self) -> bool:
+        return self.worst_safety_factor >= 2.5 and self.weight_budget_ok
+
+
+@dataclass
+class DesignIteration:
+    """One pass through the design → sim → mechanical → RL cycle."""
+
+    iteration: int = 0
+    problems_addressed: list[str] = field(default_factory=list)
+    solution_chosen: str = ""
+    design_params: DesignParams = field(default_factory=DesignParams)
+    ik_success_rate: float = 0.0
+    rl_success_rate: float = 0.0
+    mechanical_report: MechanicalReport = field(default_factory=MechanicalReport)
+    rationale: str = ""
+    components: list[ComponentSpec] = field(default_factory=list)
+    terminal_device: TerminalDeviceSpec = field(default_factory=TerminalDeviceSpec)
+
+
+@dataclass
+class AgentWorkReport:
+    """Full transparency report from the multi-clip pipeline."""
+
+    clip_observations: list[ClipObservation] = field(default_factory=list)
+    unified_requirements: UnifiedRequirements = field(default_factory=UnifiedRequirements)
+    design_iterations: list[DesignIteration] = field(default_factory=list)
+    final_mechanical_report: MechanicalReport = field(default_factory=MechanicalReport)
+    final_design_rationale: str = ""
+    viable: bool = False
