@@ -1,0 +1,26 @@
+<mujoco model="prosthesis_cad_test">
+  <compiler angle="radian" />
+  <worldbody>
+    <body name="mount" pos="0 0 0">
+      <body name="upper_arm" pos="0 0 -0">
+        <joint name="shoulder_flex" type="hinge" axis="0 1 0" range="-1.5708 2.0944" />
+        <joint name="shoulder_abduct" type="hinge" axis="1 0 0" range="-1.0472 1.5708" />
+        <geom type="capsule" fromto="0 0 0 0 0 -0.3" size="0.025" />
+        <body name="forearm" pos="0 0 -0.3">
+          <joint name="elbow" type="hinge" axis="0 1 0" range="0 2.0944" />
+          <geom type="capsule" fromto="0 0 0 0 0 -0.26" size="0.022" />
+          <body name="gripper" pos="0 0 -0.56">
+            <joint name="wrist" type="hinge" axis="1 0 0" range="-1.0472 1.0472" />
+            <geom type="capsule" fromto="0 0 0 0 0 -0.06" size="0.04" />
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor joint="shoulder_flex" gear="20.0" />
+    <motor joint="shoulder_abduct" gear="20.0" />
+    <motor joint="elbow" gear="20.0" />
+    <motor joint="wrist" gear="20.0" />
+  </actuator>
+</mujoco>
