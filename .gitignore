@@ -255,3 +255,6 @@ __marimo__/
 __pycache__/
 *.pyc
 .gstack/
+
+# Candidate comparison run artifacts (regenerable via scripts/compare_candidates.py)
+runs/
