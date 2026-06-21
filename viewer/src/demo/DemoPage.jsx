@@ -308,7 +308,7 @@ export default function DemoPage() {
         <div className="demo-brand">
           <span className="demo-logo">⬡</span>
           <div>
-            <div className="demo-title">ARMASAI</div>
+            <div className="demo-title">SUPERHUMAN</div>
             <div className="demo-sub">Multi-Agent Prosthesis Pipeline</div>
           </div>
         </div>

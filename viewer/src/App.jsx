@@ -114,7 +114,7 @@ export default function App() {
       <header className="header">
         <div className="header-brand">
           <span className="logo-mark">⬡</span>
-          <span className="logo-text">ARMASAI</span>
+          <span className="logo-text">SUPERHUMAN</span>
           <span className="logo-sub">Prosthetic CAD</span>
         </div>
         <div className="header-controls">

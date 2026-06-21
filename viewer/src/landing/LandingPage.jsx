@@ -44,7 +44,7 @@ export default function LandingPage() {
       <nav className="lp-nav">
         <div className="lp-brand">
           <span className="lp-logo">⬡</span>
-          <span className="lp-wordmark">ARMASAI</span>
+          <span className="lp-wordmark">SUPERHUMAN</span>
         </div>
         <div className="lp-nav-links">
           <a href="#how">How it works</a>
@@ -63,7 +63,7 @@ export default function LandingPage() {
           <span className="lp-grad">how you actually live.</span>
         </h1>
         <p className="lp-sub">
-          Armasai watches a short clip of a daily task, understands the limitation,
+          Superhuman watches a short clip of a daily task, understands the limitation,
           then designs, simulates, and manufactures a custom prosthetic arm tuned to
           that exact need — closing the loop from real life to a printable part.
         </p>
@@ -100,7 +100,7 @@ export default function LandingPage() {
             not personalized to the tasks that actually matter to someone’s day.
           </p>
           <p className="lp-band-accent">
-            Armasai automates a first-pass personalized design loop — grounded in a single
+            Superhuman automates a first-pass personalized design loop — grounded in a single
             video of the person living their life.
           </p>
         </div>
@@ -170,7 +170,7 @@ export default function LandingPage() {
       <footer className="lp-footer">
         <div className="lp-brand">
           <span className="lp-logo">⬡</span>
-          <span className="lp-wordmark">ARMASAI</span>
+          <span className="lp-wordmark">SUPERHUMAN</span>
         </div>
         <div className="lp-footer-note">Creation &amp; simulation pipeline for custom prosthetics.</div>
       </footer>
