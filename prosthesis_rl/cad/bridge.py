@@ -1,185 +1,105 @@
 from __future__ import annotations
 
-import math
-import struct
+import json
 from pathlib import Path
+
+import numpy as np
+import trimesh
 
 from prosthesis_rl.contracts import DesignParams
 
 
 class CadBridge:
-    """DesignParams -> parametric 3D geometry -> binary STL.
+    """DesignParams -> per-link 3D geometry -> one binary STL per moving link.
 
-    Generates a simplified prosthetic arm: shoulder socket + upper arm tube +
-    elbow sphere + forearm tube + wrist disc. Good enough for MuJoCo import
-    and viewer preview.  Swap per-link meshes with CadQuery once sandbox is up.
+    Each link in the design's kinematic chain is meshed in its **own local frame**
+    (origin at the proximal joint, body extending along -Z by `length`), matching
+    sim.mjcf_builder's body convention. That lets MuJoCo attach the real geometry
+    to each articulated body so it bends at the joints — a true robot arm rather
+    than one fused, static blob. A `manifest.json` records the chain + mesh files
+    for inspection / reload.
+
+    Swap the capsule primitives here for CadQuery solids once that sandbox is up;
+    the per-link contract (one STL per body, in joint frame) stays the same.
     """
 
     def __init__(self, output_dir: str | Path = "assets/stl") -> None:
         self.output_dir = Path(output_dir)
 
+    # ── Primary: articulated per-link export ─────────────────────────────────
+
+    def export_arm(self, params: DesignParams, name: str = "candidate") -> Path:
+        """Write one `<link>.stl` per link + `manifest.json`; return the scene dir.
+
+        Pass the returned dir to sim.mjcf_builder.build_mjcf(..., mesh_dir=dir)
+        to skin the simulated arm with this geometry.
+        """
+        out = self.output_dir / name
+        out.mkdir(parents=True, exist_ok=True)
+
+        manifest_links = []
+        for link in params.links:
+            mesh = self._link_mesh(link.length, link.radius)
+            mesh_file = f"{link.name}.stl"
+            mesh.export(out / mesh_file)
+            manifest_links.append({
+                "name": link.name,
+                "length": link.length,
+                "radius": link.radius,
+                "mesh": mesh_file,
+                "rgba": list(link.rgba),
+                "joints": [
+                    {"name": j.name, "axis": list(j.axis),
+                     "range_deg": list(j.range_deg), "type": j.type}
+                    for j in link.joints
+                ],
+            })
+
+        manifest = {
+            "name": name,
+            "dof": params.dof,
+            "joint_order": params.joint_names,
+            "links": manifest_links,
+        }
+        (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        return out
+
+    # ── Back-compat: one fused STL of the whole arm at zero pose ──────────────
+
     def export_stl(self, params: DesignParams, name: str = "candidate") -> Path:
+        """Fuse all links (at the zero/extended pose) into a single STL.
+
+        Kept for the recon scene-combine path; the articulated sim uses
+        `export_arm`. Returns the path to the written `<name>.stl`.
+        """
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        meshes, z = [], 0.0
+        for link in params.links:
+            m = self._link_mesh(link.length, link.radius)
+            m.apply_translation([0.0, 0.0, z])
+            meshes.append(m)
+            z -= link.length
+        fused = trimesh.util.concatenate(meshes)
         stl_path = self.output_dir / f"{name}.stl"
-        triangles = self._build_arm_triangles(params)
-        stl_path.write_bytes(self._pack_binary_stl(triangles))
+        fused.export(stl_path)
         return stl_path
 
-    # ── Geometry builders ────────────────────────────────────────────────────
-
-    def _build_arm_triangles(self, params: DesignParams) -> list[tuple]:
-        """Return list of (normal, v0, v1, v2) tuples for all arm components."""
-        tris: list[tuple] = []
-        r = 0.030  # tube radius (m)
-        jr = r * 1.3  # joint radius
-
-        # Shoulder socket (short wide cylinder at origin)
-        tris += self._cylinder(
-            center=(0, 0, 0), axis=(0, 1, 0),
-            radius=r * 1.5, height=r * 2.5, segments=24,
-        )
-
-        # Upper arm
-        ua_start = (0, -(r * 1.25), 0)
-        tris += self._cylinder(
-            center=(0, -(r * 1.25 + params.upper_arm_len / 2), 0),
-            axis=(0, 1, 0), radius=r, height=params.upper_arm_len, segments=24,
-        )
-
-        # Elbow joint (sphere)
-        elbow_y = -(r * 1.25 + params.upper_arm_len + jr)
-        tris += self._sphere(center=(0, elbow_y, 0), radius=jr, segments=16)
-
-        # Forearm (angled by elbow_deg, default 30°)
-        elbow_deg = 30.0
-        elbow_rad = math.radians(elbow_deg)
-        dx = math.sin(elbow_rad) * (params.forearm_len / 2)
-        dy = -math.cos(elbow_rad) * (params.forearm_len / 2)
-        fa_center = (dx, elbow_y + dy, 0)
-        fa_axis = (math.sin(elbow_rad), -math.cos(elbow_rad), 0)
-        tris += self._cylinder(
-            center=fa_center, axis=fa_axis,
-            radius=r * 0.9, height=params.forearm_len, segments=24,
-        )
-
-        # Wrist disc at end of forearm
-        wrist_x = math.sin(elbow_rad) * params.forearm_len
-        wrist_y = elbow_y - math.cos(elbow_rad) * params.forearm_len
-        tris += self._sphere(center=(wrist_x, wrist_y, 0), radius=r * 1.0, segments=12)
-
-        return tris
-
-    # ── Primitive generators ─────────────────────────────────────────────────
-
-    def _cylinder(
-        self, center: tuple, axis: tuple, radius: float, height: float, segments: int
-    ) -> list[tuple]:
-        """Tessellated cylinder (closed ends) oriented along axis."""
-        tris: list[tuple] = []
-        cx, cy, cz = center
-        ax, ay, az = self._normalize(axis)
-
-        # Build two perpendicular axes
-        ux, uy, uz = self._perp(ax, ay, az)
-        vx, vy, vz = self._cross(ax, ay, az, ux, uy, uz)
-
-        top = [(cx + ax * height / 2, cy + ay * height / 2, cz + az * height / 2)]
-        bot = [(cx - ax * height / 2, cy - ay * height / 2, cz - az * height / 2)]
-
-        rings: list[list[tuple]] = [[], []]
-        for i in range(segments):
-            theta = 2 * math.pi * i / segments
-            c, s = math.cos(theta) * radius, math.sin(theta) * radius
-            for j, sign in enumerate([1, -1]):
-                ox = cx + sign * ax * height / 2 + c * ux + s * vx
-                oy = cy + sign * ay * height / 2 + c * uy + s * vy
-                oz = cz + sign * az * height / 2 + c * uz + s * vz
-                rings[j].append((ox, oy, oz))
-
-        for i in range(segments):
-            n = (i + 1) % segments
-            # Side quads
-            t0, t1 = rings[0][i], rings[0][n]
-            b0, b1 = rings[1][i], rings[1][n]
-            side_n = self._tri_normal(t0, t1, b0)
-            tris.append((side_n, t0, t1, b0))
-            tris.append((side_n, t1, b1, b0))
-            # Top cap
-            tris.append(((ax, ay, az), top[0], t0, t1))
-            # Bottom cap
-            tris.append(((-ax, -ay, -az), bot[0], rings[1][n], rings[1][i]))
-
-        return tris
-
-    def _sphere(self, center: tuple, radius: float, segments: int) -> list[tuple]:
-        cx, cy, cz = center
-        tris: list[tuple] = []
-        rings = segments
-        slices = segments * 2
-
-        verts: list[list[tuple]] = []
-        for i in range(rings + 1):
-            phi = math.pi * i / rings
-            row = []
-            for j in range(slices):
-                theta = 2 * math.pi * j / slices
-                x = cx + radius * math.sin(phi) * math.cos(theta)
-                y = cy + radius * math.cos(phi)
-                z = cz + radius * math.sin(phi) * math.sin(theta)
-                row.append((x, y, z))
-            verts.append(row)
-
-        for i in range(rings):
-            for j in range(slices):
-                n = (j + 1) % slices
-                a, b = verts[i][j], verts[i][n]
-                c, d = verts[i + 1][j], verts[i + 1][n]
-                nm = self._tri_normal(a, b, c)
-                tris.append((nm, a, b, c))
-                tris.append((nm, b, d, c))
-
-        return tris
-
-    # ── Math helpers ─────────────────────────────────────────────────────────
+    # ── Geometry ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _normalize(v: tuple) -> tuple:
-        x, y, z = v
-        mag = math.sqrt(x * x + y * y + z * z) or 1.0
-        return (x / mag, y / mag, z / mag)
+    def _link_mesh(length: float, radius: float) -> trimesh.Trimesh:
+        """A capsule from the local origin (z=0) down to (0, 0, -length).
 
-    @staticmethod
-    def _perp(ax: float, ay: float, az: float) -> tuple:
-        if abs(ax) <= abs(ay) and abs(ax) <= abs(az):
-            return CadBridge._normalize((0, -az, ay))
-        if abs(ay) <= abs(az):
-            return CadBridge._normalize((-az, 0, ax))
-        return CadBridge._normalize((-ay, ax, 0))
-
-    @staticmethod
-    def _cross(ax, ay, az, bx, by, bz) -> tuple:
-        return (ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx)
-
-    @staticmethod
-    def _tri_normal(a: tuple, b: tuple, c: tuple) -> tuple:
-        ax, ay, az = b[0] - a[0], b[1] - a[1], b[2] - a[2]
-        bx, by, bz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
-        nx, ny, nz = ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
-        mag = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
-        return (nx / mag, ny / mag, nz / mag)
-
-    # ── Binary STL packer ────────────────────────────────────────────────────
-
-    @staticmethod
-    def _pack_binary_stl(triangles: list[tuple]) -> bytes:
-        header = b"Prosthesis-RL candidate STL" + b"\x00" * (80 - 27)
-        count = struct.pack("<I", len(triangles))
-        body = bytearray()
-        for tri in triangles:
-            n = tri[0]
-            vs = tri[1:4]
-            body += struct.pack("<fff", *n)
-            for v in vs:
-                body += struct.pack("<fff", *v)
-            body += struct.pack("<H", 0)
-        return header + count + bytes(body)
+        Built as cylinder + two hemispherical caps so the proximal end sits on
+        the joint and the body hangs along -Z, matching the MJCF body tree.
+        """
+        h = max(1e-4, float(length))
+        r = max(1e-4, float(radius))
+        cyl = trimesh.creation.cylinder(radius=r, height=h)  # centred, along Z
+        cyl.apply_translation([0.0, 0.0, -h / 2.0])          # -> spans 0 .. -h
+        cap_top = trimesh.creation.icosphere(subdivisions=2, radius=r)
+        cap_bot = trimesh.creation.icosphere(subdivisions=2, radius=r)
+        cap_bot.apply_translation([0.0, 0.0, -h])
+        mesh = trimesh.util.concatenate([cyl, cap_top, cap_bot])
+        mesh.merge_vertices()
+        return mesh

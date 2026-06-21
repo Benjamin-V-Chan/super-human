@@ -1,4 +1,12 @@
-from prosthesis_rl.rl.train import run_training_stub
+from prosthesis_rl.rl.train import (
+    evaluate_policy_success,
+    run_training_stub,
+    train_reach_policy,
+)
 
-__all__ = ["run_training_stub"]
+__all__ = [
+    "evaluate_policy_success",
+    "run_training_stub",
+    "train_reach_policy",
+]
 

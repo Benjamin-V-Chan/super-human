@@ -27,6 +27,8 @@ class ProsthesisLoop:
     def run_once(self, clip_path: str | Path) -> SimFeedback:
         problem = self.perception.infer_problem(clip_path)
         params, control_hints = self.design.propose(problem)
-        stl_path = self.cad.export_stl(params)
-        return self.verifier.evaluate(problem, params, control_hints, stl_path=stl_path)
+        # Per-link meshes (one STL per articulated body) + manifest; the verifier
+        # skins the simulated arm with these instead of discarding the geometry.
+        mesh_dir = self.cad.export_arm(params)
+        return self.verifier.evaluate(problem, params, control_hints, mesh_dir=mesh_dir)
 

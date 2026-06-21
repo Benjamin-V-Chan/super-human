@@ -182,6 +182,32 @@ dmypy.json
 
 # Generated prosthesis artifacts
 assets/stl/*.stl
+# Per-link arm meshes + manifest (regenerable via CadBridge.export_arm)
+assets/stl/*/
+# Scratch/smoke RL policies (keep deliberately-trained ones e.g. reach_ppo.zip)
+assets/policies/*_smoke.zip
+
+# Recon pipeline outputs (heavy / machine-specific): keep code + room.xml, drop binaries
+scripts/recon/frames/
+frames/
+room_mesh*.ply
+assets/scenes/**/visual.obj
+assets/scenes/**/collision_*.stl
+assets/scenes/**/scene.xml
+assets/scenes/**/room.xml
+
+# Demo render outputs (regenerable via scripts/demo/*.py)
+*_demo.mp4
+*_demo.png
+training_progress.mp4
+
+# Gaussian splat assets (large; train via scripts/recon/modal_gsplat.py)
+/room.ply
+webdemo/assets/scenes/room.ply
+webdemo/assets/scenes/room.ksplat
+
+# Live training dashboard runtime files (streamed by train_live.py)
+webdemo/assets/live/
 
 # pytype static type analyzer
 .pytype/
@@ -228,3 +254,4 @@ __marimo__/
 .venv/
 __pycache__/
 *.pyc
+.gstack/

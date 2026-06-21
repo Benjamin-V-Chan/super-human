@@ -1,0 +1,74 @@
+<mujoco model="prosthesis_env">
+  <compiler angle="radian" autolimits="true" meshdir="."/>
+  <option gravity="0 0 -9.81" integrator="implicitfast" timestep="0.002"/>
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.6 0.6 0.6"/>
+    <rgba haze="0.85 0.88 0.92 1"/>
+  </visual>
+  <asset>
+    <texture name="skybox" type="skybox" builtin="gradient"
+             rgb1="0.55 0.62 0.72" rgb2="0.10 0.12 0.16" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.30 0.32 0.36"
+             rgb2="0.22 0.24 0.28" width="512" height="512"/>
+    <material name="grid" texture="grid" texrepeat="14 14" reflectance="0.05"/>
+    <mesh name="upper_arm_mesh" file="arm_links/upper_arm.stl"/>
+    <mesh name="forearm_mesh" file="arm_links/forearm.stl"/>
+    <mesh name="gripper_mesh" file="arm_links/gripper.stl"/>
+  </asset>
+  <worldbody>
+    <light pos="0 0 4" dir="0 0 -1" diffuse="0.9 0.9 0.9"/>
+    <geom name="floor" type="plane" size="0 0 0.05" material="grid"/>
+    <site name="target" pos="0 0.22 0.95" size="0.025"
+          rgba="0.1 0.9 0.2 0.9" group="1"/>
+    <body name="mount" pos="0 -0.4 1">
+      <geom name="mount_geom" type="box" size="0.04 0.04 0.04" rgba="0.3 0.3 0.35 1" density="1010.0"/>
+      <body name="upper_arm" pos="0 0 0">
+        <joint name="shoulder_flex" type="hinge" axis="0 1 0" range="-1.5708 2.0944" damping="0.5" armature="0.01"/>
+        <joint name="shoulder_abduct" type="hinge" axis="1 0 0" range="-1.0472 1.5708" damping="0.5" armature="0.01"/>
+        <geom name="upper_arm_geom" type="mesh" mesh="upper_arm_mesh" rgba="0.7 0.72 0.78 1" density="1010.0"/>
+        <body name="forearm" pos="0 0 -0.3">
+        <joint name="elbow" type="hinge" axis="0 1 0" range="0 2.2689" damping="0.5" armature="0.01"/>
+        <geom name="forearm_geom" type="mesh" mesh="forearm_mesh" rgba="0.7 0.72 0.78 1" density="1010.0"/>
+        <body name="gripper" pos="0 0 -0.26">
+        <joint name="wrist" type="hinge" axis="1 0 0" range="-1.0472 1.0472" damping="0.5" armature="0.01"/>
+        <geom name="gripper_geom" type="mesh" mesh="gripper_mesh" rgba="0.85 0.6 0.2 1" density="1010.0"/>
+        <site name="ee" pos="0 0 -0.06" size="0.012" rgba="0.95 0.2 0.2 1" group="1"/>
+      </body>
+      </body>
+      </body>
+    </body>
+    <body name="human" pos="0 0 0">
+      <geom type="capsule" fromto="0 -0.4 1 0.36 -0.4 1" size="0.05" rgba="0.27 0.42 0.55 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.18 -0.4 0.49 0.18 -0.4 1.01" size="0.12" rgba="0.27 0.42 0.55 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.18 -0.4 1.02 0.18 -0.4 1.09" size="0.045" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="sphere" pos="0.18 -0.4 1.21" size="0.105" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.36 -0.4 1 0.4 -0.3 0.72" size="0.05" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.4 -0.3 0.72 0.34 -0.1 0.57" size="0.045" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="sphere" pos="0.34 -0.1 0.57" size="0.05" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.08 -0.4 0.47 0.28 -0.4 0.47" size="0.1" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.09 -0.4 0.47 0.09 -0.02 0.45" size="0.07" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.27 -0.4 0.47 0.27 -0.02 0.45" size="0.07" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.09 -0.02 0.45 0.09 0 0.07" size="0.055" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.27 -0.02 0.45 0.27 0 0.07" size="0.055" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.09 0 0.05 0.09 0.12 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.27 0 0.05 0.27 0.12 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="box" pos="0.18 -0.4 0.19" size="0.22 0.2 0.19" rgba="0.34 0.30 0.27 1" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <body name="target_marker" pos="0 0.22 0.95">
+      <geom type="sphere" size="0.03" rgba="0.1 0.9 0.2 0.85" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <contact>
+    <exclude body1="mount" body2="upper_arm"/>
+    <exclude body1="upper_arm" body2="forearm"/>
+    <exclude body1="forearm" body2="gripper"/>
+  </contact>
+  <actuator>
+    <position name="act_shoulder_flex" joint="shoulder_flex" kp="220" kv="18" ctrlrange="-1.5708 2.0944" forcerange="-80 80"/>
+    <position name="act_shoulder_abduct" joint="shoulder_abduct" kp="220" kv="18" ctrlrange="-1.0472 1.5708" forcerange="-80 80"/>
+    <position name="act_elbow" joint="elbow" kp="220" kv="18" ctrlrange="0 2.2689" forcerange="-80 80"/>
+    <position name="act_wrist" joint="wrist" kp="220" kv="18" ctrlrange="-1.0472 1.0472" forcerange="-80 80"/>
+  </actuator>
+</mujoco>
