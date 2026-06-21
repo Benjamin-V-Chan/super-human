@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
+  "product_scope": "sim-only",
   "max_concurrent_workers": 3,
   "states": ["ready", "active", "blocked", "review", "done"],
   "stages": [
@@ -7,44 +8,44 @@
       "id": "contract_freeze",
       "owner": "coordinator",
       "depends_on": [],
-      "exit_gate": "Affected schemas, units, task IDs, fixtures, and acceptance commands are explicit."
+      "exit_gate": "Affected TaskSpec, MorphologySpec, SimSpec, PolicyArtifact, EvalResult, fixtures, seeds, and acceptance commands are explicit."
     },
     {
-      "id": "feature_slices",
-      "owners": ["perception", "design_cad", "simulation"],
+      "id": "sim_slices",
+      "owners": ["task_intake", "morphology_design", "simulation"],
       "depends_on": ["contract_freeze"],
       "parallel": true,
       "exit_gate": "Each slice returns a contract-valid handoff and its focused checks pass."
     },
     {
-      "id": "loop_integration",
+      "id": "rollout_integration",
       "owner": "coordinator",
-      "depends_on": ["feature_slices"],
-      "exit_gate": "One deterministic perceive-design-verify loop completes without private schemas."
+      "depends_on": ["sim_slices"],
+      "exit_gate": "One deterministic task-intake to morphology to sim rollout completes without private schemas."
     },
     {
-      "id": "optimization",
-      "owner": "optimization",
-      "depends_on": ["loop_integration"],
+      "id": "policy_optimization",
+      "owner": "policy_optimization",
+      "depends_on": ["rollout_integration"],
       "loop": {
-        "sequence": ["propose", "verify", "record", "rank"],
+        "sequence": ["propose", "rollout", "record", "rank"],
         "requires_iteration_limit": true,
         "requires_seed": true,
-        "stop_on": ["budget exhausted", "target reward reached", "no improvement"]
+        "stop_on": ["budget exhausted", "target success reached", "no improvement"]
       },
-      "exit_gate": "Ranked candidates include rewards, seed/config, and stopping reason."
+      "exit_gate": "PolicyArtifact and ranked rollouts include rewards, seed/config, and stopping reason."
     },
     {
-      "id": "manufacture_and_present",
-      "owners": ["design_cad", "viewer_api"],
-      "depends_on": ["optimization"],
+      "id": "demo_package",
+      "owners": ["viewer_api", "qa_evidence"],
+      "depends_on": ["policy_optimization"],
       "parallel": false,
-      "exit_gate": "The selected candidate is exported once and the API/viewer consumes the shared schema."
+      "exit_gate": "Viewer/API can load the result, metrics are recorded, and replay/video evidence is linked."
     },
     {
       "id": "qa_evidence",
       "owner": "qa_evidence",
-      "depends_on": ["manufacture_and_present"],
+      "depends_on": ["demo_package"],
       "exit_gate": "Applicable repository gates pass and skipped gates are explained."
     }
   ],
@@ -52,10 +53,10 @@
     "paths": [
       "prosthesis_rl/contracts/**",
       "prosthesis_rl/agents/orchestrator.py",
-      "tasks.py"
+      "tasks.py",
+      "docs/TECHNICAL_PLAN.md"
     ],
     "default_owner": "coordinator",
     "rule": "A task must explicitly delegate a shared path before another role writes it."
   }
 }
-
