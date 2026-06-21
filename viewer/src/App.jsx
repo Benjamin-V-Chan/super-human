@@ -107,6 +107,10 @@ export default function App() {
           <span className="logo-sub">Prosthetic CAD</span>
         </div>
         <div className="header-controls">
+          <a href="#" className="export-btn" style={{ marginRight: 8 }}
+            onClick={(e) => { e.preventDefault(); window.location.hash = '' }}>
+            ← Pipeline Demo
+          </a>
           <button
             className={`icon-btn ${showDimensions ? 'active' : ''}`}
             onClick={() => setShowDimensions((v) => !v)}

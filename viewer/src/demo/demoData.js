@@ -1,0 +1,180 @@
+// ── Demo pipeline data model ──────────────────────────────────────────────────
+// The linear multi-agent path for ARMASAI: a Meta Ray-Ban egocentric clip of a
+// person performing an ADL task flows through perception → design → simulation →
+// policy → CAD output. Each stage declares the contract it consumes and the
+// contract it emits, plus a sample payload so the demo can "play" the handoff.
+//
+// `status: 'live'`    → integration is real and tested.
+// `status: 'pending'` → integration not finished; the demo shows the EXPECTED
+//                       output as a placeholder and lets the operator complete it.
+
+export const PIPELINE = [
+  {
+    key: 'capture',
+    name: 'Meta Ray-Ban Capture',
+    role: 'Egocentric input',
+    tech: 'Ray-Ban Meta · 1080p POV',
+    icon: '🕶',
+    status: 'live',
+    consumes: null,
+    emits: 'ADL clip',
+    blurb:
+      'Operator records a first-person clip of the patient attempting a daily task. ' +
+      'This raw video is the single source of truth the whole pipeline reasons from.',
+    output: {
+      clip: 'adl_drinking_bottle_left.mov',
+      duration_s: 7.4,
+      fps: 30,
+      view: 'egocentric',
+      task_hint: 'drinking water from a bottle, one-handed',
+    },
+  },
+  {
+    key: 'perception',
+    name: 'Perception Agent',
+    role: 'Vision → task understanding',
+    tech: 'Gemma Vision · frame sampler',
+    icon: '👁',
+    status: 'live',
+    consumes: 'ADL clip',
+    emits: 'ProblemSpec',
+    blurb:
+      'Samples key frames, recognizes the specific action, and infers which limb ' +
+      'needs the prosthesis vs. which is compensating. Uncertain details become ' +
+      'explicit assumptions, not silent guesses.',
+    output: {
+      primary_action: 'drinking water from a bottle one-handed',
+      affected_side: 'left',
+      residual_side: 'right',
+      constraints: {
+        rom: { shoulder_flex: 110, elbow_flex: 120 },
+        residual_strength: { shoulder: 0.6 },
+        grip_capacity: 0.0,
+      },
+      assumptions: ['bottle mass ≈ 0.5 kg estimated from clip'],
+    },
+  },
+  {
+    key: 'design',
+    name: 'Design Agent',
+    role: 'Morphology synthesis',
+    tech: 'Claude Opus · spatial gates',
+    icon: '🦾',
+    status: 'live',
+    consumes: 'ProblemSpec',
+    emits: 'DesignParams',
+    blurb:
+      'Turns the task + constraints into an explicit kinematic chain — links, ' +
+      'joints, limits, actuators — then runs reachability and validity gates ' +
+      'before anything downstream touches it.',
+    output: {
+      mount_frame: 'torso_left',
+      upper_arm_len: 0.3,
+      forearm_len: 0.26,
+      grip_width: 0.08,
+      joint_stiffness: 1.1,
+      dof: 4,
+      joint_names: ['shoulder_flex', 'shoulder_abduct', 'elbow', 'wrist'],
+      validation: 'reach ✓  inertia ✓  joint-limits ✓',
+    },
+  },
+  {
+    key: 'simulation',
+    name: 'Simulation Agent',
+    role: 'Physics verification',
+    tech: 'MuJoCo · deterministic rollouts',
+    icon: '🧪',
+    status: 'pending',
+    owner: 'Nathan',
+    consumes: 'DesignParams + SimSpec',
+    emits: 'EvalResult',
+    blurb:
+      'Loads the morphology into a MuJoCo ADL scene and runs fixed-seed rollouts ' +
+      'to score the design. Not yet wired — the demo shows the expected EvalResult ' +
+      'shape so the downstream path stays runnable.',
+    // Expected output used as a placeholder until the integration lands.
+    expected: {
+      task_id: 'reach_bottle_v1',
+      num_rollouts: 20,
+      success_rate: 0.75,
+      mean_reward: 0.42,
+      mean_energy: 0.31,
+      collision_rate: 0.05,
+      video_path: 'runs/reach_bottle_v1/demo.mp4',
+    },
+  },
+  {
+    key: 'policy',
+    name: 'Policy / RL Agent',
+    role: 'Controller behavior',
+    tech: 'PyTorch · scripted-IK → RL',
+    icon: '🎮',
+    status: 'pending',
+    owner: 'Vasi',
+    consumes: 'EvalResult + SimSpec',
+    emits: 'PolicyArtifact',
+    blurb:
+      'Ships a scripted/IK controller as a behavior floor, then trains an RL ' +
+      'policy when the reward is stable. Not yet wired — the demo shows the ' +
+      'expected PolicyArtifact so the CAD stage can still complete.',
+    expected: {
+      kind: 'scripted_ik',
+      path: 'policies/reach_bottle_v1.json',
+      inputs: ['observation'],
+      outputs: ['joint_targets'],
+      success_rate: 0.81,
+    },
+  },
+  {
+    key: 'cad',
+    name: 'CAD Builder',
+    role: 'Geometry export',
+    tech: 'CadBridge · STL / MJCF',
+    icon: '⬡',
+    status: 'live',
+    consumes: 'DesignParams + PolicyArtifact',
+    emits: 'CAD model (STL)',
+    blurb:
+      'Materializes the validated morphology into simulation geometry, assembled ' +
+      'part-by-part. The result is the exportable CAD model — the end artifact of ' +
+      'the whole pipeline.',
+    output: {
+      file: 'candidate.stl',
+      parts: 6,
+      triangles: 18432,
+      bounding_box_m: [0.18, 0.62, 0.18],
+    },
+  },
+]
+
+// Ordered list of physical parts the CAD builder assembles, in build order.
+// Each maps onto a sub-mesh of the prosthetic arm so we can "larp" the build.
+export const CAD_PARTS = [
+  { key: 'socket', label: 'Shoulder socket', note: 'torso mount + flange' },
+  { key: 'upper', label: 'Upper-arm tube', note: 'carbon-fiber, 30 cm' },
+  { key: 'elbow', label: 'Elbow joint', note: 'hinge + stiffness cell' },
+  { key: 'forearm', label: 'Forearm tube', note: 'carbon-fiber, 26 cm' },
+  { key: 'wrist', label: 'Wrist connector', note: 'rotary coupling' },
+  { key: 'gripper', label: 'Two-jaw gripper', note: '8 cm aperture' },
+]
+
+// CAD params the assembly renders (mirrors viewer DEFAULT_PARAMS).
+export const CAD_PARAMS = {
+  upper_arm_len: 0.3,
+  forearm_len: 0.26,
+  grip_width: 0.08,
+  arm_radius: 0.03,
+  joint_stiffness: 1.1,
+  primaryColor: '#0d1117',
+  accentColor: '#00d4ff',
+}
+
+// Timing (ms) for the auto-play "Run pipeline" sequence.
+export const TIMING = {
+  capture: 1800,
+  perception: 2200,
+  design: 2200,
+  simulation: 1600,
+  policy: 1600,
+  cadPerPart: 950,
+}
