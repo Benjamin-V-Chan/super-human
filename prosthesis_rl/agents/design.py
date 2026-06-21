@@ -97,11 +97,23 @@ class DesignAgent:
         if brief:
             upper_m, forearm_m, grip_w, stiffness, elbow, wrist = self._params_from_brief(brief)
         else:
-            upper_m, forearm_m = 0.30, 0.26
-            grip_w = max(0.06, min(0.12, problem.constraints.grip_capacity * 0.15 + 0.06))
-            elbow = (0.0, 130.0)
-            wrist = (-60.0, 60.0)
-            stiffness = 1.0
+            anthro = problem.residual_anthropometrics or {}
+            rom = problem.constraints.rom or {}
+            strength = problem.constraints.residual_strength or {}
+            # Mirror the intact limb's measured size (adult defaults if unseen).
+            upper_m = min(0.40, max(0.20, float(anthro.get("upper_arm_len", 0.30))))
+            forearm_m = min(0.34, max(0.18, float(anthro.get("forearm_len", 0.26))))
+            grip_span = anthro.get("grip_span")
+            if grip_span:
+                grip_w = min(0.14, max(0.05, float(grip_span)))
+            else:
+                grip_w = max(0.06, min(0.12, problem.constraints.grip_capacity * 0.15 + 0.06))
+            # Joint ranges from the action's observed range-of-motion needs.
+            elbow = (0.0, min(160.0, max(90.0, float(rom.get("elbow_flexion", 130.0)))))
+            wrist_rng = min(80.0, max(30.0, float(rom.get("wrist_rotation", 60.0))))
+            wrist = (-wrist_rng, wrist_rng)
+            # Weaker residual shoulder → stiffer powered assist.
+            stiffness = round(min(1.8, max(0.6, 1.6 - float(strength.get("shoulder", 0.6)))), 2)
 
         if feedback is not None:
             if feedback.breakdown.rom_penalty > 0.1:
