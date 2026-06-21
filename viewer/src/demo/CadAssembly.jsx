@@ -1,8 +1,19 @@
 import { Suspense, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, Grid, Environment, PerspectiveCamera, Html } from '@react-three/drei'
+import { OrbitControls, Grid, Environment, PerspectiveCamera, Html, Bounds } from '@react-three/drei'
 import * as THREE from 'three'
 import { CAD_PARTS } from './demoData.js'
+
+// Invisible box spanning the full arm so <Bounds> always frames the same volume
+// (centered on the origin) regardless of how many parts are revealed.
+function FrameProxy({ width, height }) {
+  return (
+    <mesh>
+      <boxGeometry args={[width, height, width]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
+  )
+}
 
 // ── Materials (matches the studio viewer palette) ─────────────────────────────
 function useMats(params) {
@@ -169,19 +180,17 @@ function Arm({ params, revealed }) {
 }
 
 export default function CadAssembly({ params, revealed }) {
-  // Approximate model height (same stack as <Arm>) so the camera frames any
-  // design size and the model stays centered.
+  // Full-model extent (same stack as <Arm>) for the framing proxy + grid floor.
   const r = (params.arm_radius || 0.03) * 100
   const total = r * 2 + (params.upper_arm_len || 0.3) * 100 + r * 2.6 +
     (params.forearm_len || 0.26) * 100 + r * 2.5 + r * 2.2
-  const dist = total * 1.75
-  const camPos = [dist * 0.52, dist * 0.23, dist * 0.82] // normalized-ish view dir
+  const width = Math.max(r * 3, (params.grip_width || 0.08) * 100 + r * 2)
   const floorY = -total / 2 - 4
 
   return (
     <Canvas shadows gl={{ antialias: true, alpha: true }} style={{ width: '100%', height: '100%' }}>
-      <PerspectiveCamera makeDefault position={camPos} fov={38} near={0.1} far={dist * 6} />
-      <OrbitControls enableDamping dampingFactor={0.08} minDistance={total * 0.6} maxDistance={dist * 2.5} target={[0, 0, 0]} enablePan={false} />
+      <PerspectiveCamera makeDefault position={[total, total * 0.4, total * 1.5]} fov={40} near={0.1} far={total * 12} />
+      <OrbitControls makeDefault enableDamping dampingFactor={0.08} enablePan={false} />
       <ambientLight intensity={0.7} />
       <hemisphereLight intensity={0.6} groundColor="#0a0a0f" />
       <directionalLight position={[40, 60, 30]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} />
@@ -192,8 +201,13 @@ export default function CadAssembly({ params, revealed }) {
       <Suspense fallback={null}>
         <Environment preset="city" />
       </Suspense>
-      <Grid position={[0, floorY, 0]} args={[400, 400]} cellSize={5} cellThickness={0.5} sectionSize={20} sectionThickness={1} cellColor="#1a1a2e" sectionColor="#2a2a40" fadeDistance={dist * 2} fadeStrength={1} infiniteGrid />
-      <Arm params={params} revealed={revealed} />
+      <Grid position={[0, floorY, 0]} args={[400, 400]} cellSize={5} cellThickness={0.5} sectionSize={20} sectionThickness={1} cellColor="#1a1a2e" sectionColor="#2a2a40" fadeDistance={total * 3} fadeStrength={1} infiniteGrid />
+      {/* <Bounds> auto-centers + fits the camera to the framing proxy, so the
+          model sits dead-center at any design size and viewport shape. */}
+      <Bounds key={Math.round(total)} fit clip observe margin={1.15}>
+        <FrameProxy width={width} height={total} />
+        <Arm params={params} revealed={revealed} />
+      </Bounds>
     </Canvas>
   )
 }
