@@ -64,15 +64,14 @@ Live demo runs the whole thing in the browser from a single uploaded clip.
 
 (Confirm names/handles before presenting — pulled from `docs/WORK_SPLIT.md`.)
 
+- **Benjamin Chan** — Technical Lead: system architecture, AI design reasoning, sim morphology, spatial evaluation, shared contracts *(and the friend whose injury started this)*
 - **Vihaan Shringi** — orchestration, APIs, task intake, demo runtime
-- **Benji** — sim morphology / AI design reasoning / spatial evaluation *(and the
-  friend whose injury started this)*
 - **Nathan** — physics environment & scenario fidelity (MuJoCo)
 - **Vasi** — policy, RL, reward optimization
 
 ## Links / references to access
 
-- GitHub: https://github.com/v1hns/armasai
+- GitHub: https://github.com/Benjamin-V-Chan/super-human
 - Live demo (Vercel): **TODO — paste the prod URL after `vercel --prod`**
 - Repo docs to mine for accurate detail:
   - `docs/PRD.md` — product scope, goals, non-goals

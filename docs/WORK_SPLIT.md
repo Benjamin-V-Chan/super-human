@@ -1,49 +1,54 @@
-# Prosthesis-RL SIM — Work Split
+# ARMASAI — Work Split
 
-This is the single source of truth for ownership, task split, milestones, and timeline after the sim-only pivot. Product scope lives in [PRD.md](PRD.md), and contracts/evaluation live in [TECHNICAL_PLAN.md](TECHNICAL_PLAN.md).
+Single source of truth for ownership, task split, milestones, and timeline. Product scope lives in [PRD.md](PRD.md); contracts and evaluation live in [TECHNICAL_PLAN.md](TECHNICAL_PLAN.md).
 
-## Pivot Impact
+## Pivot Context
 
 - Physical manufacturing is out of scope.
-- CAD work becomes simulation morphology and geometry generation.
-- The main proof is empirical sim evidence, not printable hardware.
-- Perception is useful only insofar as it creates a concrete `TaskSpec`.
-- The demo should emphasize reproducibility: launch sim, run policy, view metrics, watch rollout.
+- CAD work feeds simulation morphology and geometry generation, not a manufacturing pipeline.
+- The proof is empirical sim evidence: launch, run policy, view metrics, watch rollout.
+- Perception produces a concrete `TaskSpec`; uncertain clip details become explicit assumptions.
 
-## Benji — Sim Morphology, AI Reasoning, Spatial Evaluation
+---
 
-Benji owns the reasoning and morphology side of the simulator: generating candidate simulated limbs, validating spatial feasibility, and deciding from empirical evidence which candidate is better.
+## Benjamin Chan — Technical Lead, AI Design & Simulation
+
+Benjamin owns the technical architecture of the system and leads the AI reasoning and morphology side of the simulator. He defines the design contracts that every other stage depends on, drives candidate generation and validation, and owns the empirical evidence that shows which morphology and controller perform best.
 
 ### Responsibilities
 
-- **Sim morphology generation:** produce `MorphologySpec` candidates with links, joints, limits, actuators, masses, and collision geometry.
-- **AI design reasoning:** turn `TaskSpec` plus sim feedback into candidate morphology and controller-interface changes.
-- **Spatial reasoning:** check reachability, workspace coverage, mount frames, joint limits, collision geometry, and task-space constraints.
-- **Simulation geometry:** generate MJCF/URDF or mesh assets as sim inputs, not manufacturing outputs.
-- **Empirical evaluation analysis:** compare candidate morphologies, inspect reward distributions, explain failure modes, and select the best sim design.
-- **Validation gates:** reject invalid kinematic trees, impossible task reach, bad inertias, invalid actuator ranges, or unstable simulated bodies.
+- **System architecture:** own the layered module structure (`contracts`, `agents`, `sim`, `rl`, `cad`), define stage interfaces, and make the final call on cross-cutting design decisions.
+- **Shared contracts:** author and maintain `TaskSpec`, `DesignParams` / `MorphologySpec`, `SimSpec`, `PolicyArtifact`, and `EvalResult` — the source of truth every stage reads and writes.
+- **Sim morphology generation:** produce `MorphologySpec` / `DesignParams` candidates with explicit `LinkDef` + `JointDef` chains, joint limits, actuator torque limits, masses, and collision geometry.
+- **AI design reasoning:** drive the LLM-in-the-loop design agent — turn `TaskSpec` plus sim feedback into ranked morphology candidates and controller-interface changes.
+- **Spatial reasoning and validation gates:** check reachability, workspace coverage, mount frames, joint limits, collision geometry, and task-space constraints; reject invalid kinematic trees, impossible reach, bad inertias, invalid actuator ranges, and unstable bodies before they enter sim.
+- **Empirical evaluation analysis:** compare candidate morphologies across reward distributions, explain failure modes, and select the best design with quantitative evidence.
+- **Integration leadership:** unblock other contributors, review cross-module PRs, and keep the stub-to-real replacement path clear as simulation and policy pieces land.
 
 ### Milestone
 
-A candidate simulated limb can be generated, loaded into the sim, evaluated across rollouts, and justified with metrics.
+A candidate simulated limb is generated from a `TaskSpec`, loaded into the sim environment, evaluated across ≥ 10 fixed-seed rollouts, and justified with success rate, reward, and failure-mode analysis.
 
-## Vihaan — Orchestration, APIs, Task Intake, Demo Runtime
+---
 
-Vihaan owns the runnable system path: task intake, contracts, HUD/eval gateway, orchestration, and demo flow.
+## Vihaan Shringi — Orchestration, APIs, Task Intake, Demo Runtime
+
+Vihaan owns the runnable system path: task intake, contracts plumbing, HUD/eval gateway, orchestration, and demo flow.
 
 ### Responsibilities
 
-- **Orchestration:** wire task intake -> sim builder -> policy runner -> evaluator -> report.
+- **Orchestration:** wire task intake → sim builder → policy runner → evaluator → report.
 - **HUD integration:** maintain `tasks.py`, the gateway, and the command path that returns real eval metrics.
 - **Task intake:** convert clips, prompts, or ADL examples into validated `TaskSpec` records.
-- **API and provider access:** keep required provider keys, credits, and fallbacks usable for the sim demo, including HUD, Anthropic/Gemini-style model access, Modal or other compute, and RL-training providers when needed.
-- **Shared contracts:** maintain `TaskSpec`, `MorphologySpec`, `SimSpec`, `PolicyArtifact`, and `EvalResult`.
+- **API and provider access:** keep required provider keys, credits, and fallbacks usable — HUD, Anthropic/Gemini model access, Modal or other compute, RL training providers.
 - **Demo runtime:** make the viewer or local commands launch the sim and replay results cleanly.
 - **Integration discipline:** keep stubs runnable while real morphology, sim, and policy pieces replace them.
 
 ### Milestone
 
 The sim-only loop runs end to end and produces metrics plus a replayable demo artifact.
+
+---
 
 ## Nathan — Physics Environment and Scenario Fidelity
 
@@ -53,7 +58,7 @@ Nathan owns the simulation environment and task realism.
 
 - **MuJoCo/HUD environment:** build the scene, physics config, reset logic, observations, and action space.
 - **Task scenarios:** implement concrete ADL-style tasks with measurable success criteria.
-- **Physics fidelity:** tune contacts, object properties, joint dynamics, and episode constraints enough for believable sim behavior.
+- **Physics fidelity:** tune contacts, object properties, joint dynamics, and episode constraints for believable sim behavior.
 - **Deterministic verifier:** make fixed-seed rollouts reproducible and cheap enough for repeated evaluation.
 - **Failure diagnostics:** expose collision, instability, unreachable target, and joint-limit failure signals to evaluation.
 
@@ -61,13 +66,15 @@ Nathan owns the simulation environment and task realism.
 
 At least one ADL-style scenario runs deterministically with metrics suitable for comparing candidates.
 
+---
+
 ## Vasi — Policy, RL, Reward Optimization
 
 Vasi owns policy behavior and learning from sim rewards.
 
 ### Responsibilities
 
-- **Baseline controller:** ship scripted or IK policy first so the demo has a reliable behavior floor.
+- **Baseline controller:** scripted or IK policy first so the demo has a reliable behavior floor.
 - **RL training:** train a policy when the scenario and reward are stable enough.
 - **Reward shaping:** define terms for success, distance, energy, joint-limit violations, and collisions.
 - **Calibration:** tune reward and scenario difficulty so rollouts produce useful variance.
@@ -77,13 +84,15 @@ Vasi owns policy behavior and learning from sim rewards.
 
 A policy or controller can run repeated rollouts and show measurable task behavior in the sim.
 
+---
+
 ## Shared Timeline
 
-| Window | Benji | Vihaan | Nathan | Vasi |
-| --- | --- | --- | --- | --- |
-| Phase 1 | Morphology schema, spatial checks, first simulated limb | Contracts, task intake stub, eval command path | Minimal MuJoCo/HUD task scene | Scripted/IK baseline |
-| Phase 2 | Candidate morphology generation and validation gates | End-to-end runner, viewer/replay wiring | Deterministic task metrics and reset logic | Reward shaping and calibration |
-| Phase 3 | Compare candidates and write design rationale | Final demo flow and report assembly | Final scenario tuning and failure signals | RL attempt or polished baseline policy |
+| Phase | Benjamin (Tech Lead) | Vihaan | Nathan | Vasi |
+|---|---|---|---|---|
+| Phase 1 | Finalize contracts, morphology schema, spatial checks, first simulated limb | Contracts plumbing, task intake stub, eval command path | Minimal MuJoCo/HUD task scene | Scripted/IK baseline |
+| Phase 2 | Candidate morphology generation, validation gates, design-agent ranking loop | End-to-end runner, viewer/replay wiring | Deterministic task metrics and reset logic | Reward shaping and calibration |
+| Phase 3 | Cross-candidate comparison, design rationale, integration review | Final demo flow and report assembly | Final scenario tuning and failure signals | RL attempt or polished baseline policy |
 
 ## Hard Checkpoints
 
