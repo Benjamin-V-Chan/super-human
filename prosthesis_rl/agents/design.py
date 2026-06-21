@@ -326,7 +326,7 @@ class DesignAgent:
     def rationale_report(
         self,
         candidates: list[DesignParams],
-        eval_results: list[_FullEval],
+        eval_results: list,
         best_i: int,
         rationale: str,
         action: str = "",
@@ -358,12 +358,15 @@ class DesignAgent:
                 (j.range_deg[1] for l in params.links for j in l.joints if j.name == "wrist"), 0.0
             )
             tag = " ◄ BEST" if i == best_i else ""
-            life_str = f"{er.predicted_life_years:.1f}yr" if er.predicted_life_years < 100 else ">=100yr"
+            life = getattr(er, "predicted_life_years", float("inf"))
+            life_str = f"{life:.1f}yr" if life < 100 else ">=100yr"
+            var = getattr(er, "reward_variance", 0.0)
+            dist = getattr(er, "mean_final_dist_cm", 0.0)
             lines.append(
                 f"  {i:<3} {params.upper_arm_len:>8.3f} {params.forearm_len:>7.3f} "
                 f"{elbow_hi:>9.1f}° {wrist_hi:>9.1f}° "
-                f"{er.mean_reward:>+8.3f} {er.reward_variance:>6.3f} "
-                f"{er.success_rate:>5.0%} {er.mean_final_dist_cm:>6.1f}cm "
+                f"{er.mean_reward:>+8.3f} {var:>6.3f} "
+                f"{er.success_rate:>5.0%} {dist:>6.1f}cm "
                 f"{er.mean_energy:>7.0f}J {er.collision_rate:>5.0%} "
                 f"{life_str:>8}{tag}"
             )
@@ -373,6 +376,8 @@ class DesignAgent:
         lines.append("")
 
         best_er = eval_results[best_i]
+        best_life = getattr(best_er, "predicted_life_years", float("inf"))
+        best_rom = getattr(best_er, "rom_violation_mean", 0.0)
         lines.append("  FAILURE MODE ANALYSIS (best candidate):")
         if best_er.success_rate < 0.5:
             lines.append("    ✗ Low success rate — IK struggles to reach FK-sampled targets.")
@@ -381,9 +386,9 @@ class DesignAgent:
             lines.append("    ✗ High energy — actuators are working hard; consider stiffer joints.")
         if best_er.collision_rate > 0.1:
             lines.append("    ✗ Self-collision detected — shorten links or tighten elbow range.")
-        if best_er.rom_violation_mean > 0.01:
+        if best_rom > 0.01:
             lines.append("    ✗ ROM violations — joint limits may be too tight for the IK solver.")
-        if best_er.predicted_life_years < 1.0:
+        if best_life < 1.0:
             lines.append("    ✗ Very short predicted service life — peak torques exceed material limits.")
         if (
             best_er.success_rate >= 0.5
