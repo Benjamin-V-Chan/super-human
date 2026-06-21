@@ -27,6 +27,7 @@ class Verifier:
         n_targets: int = 4,
         seconds: float = 3.0,
         seed: int = 0,
+        emit_cb=None,
     ) -> SimFeedback:
         del problem, control_hints  # reserved: scene perturbations / control tuning
         import mujoco
@@ -47,7 +48,8 @@ class Verifier:
         for target in targets:
             data = mujoco.MjData(model)
             ctrl = ReachController(model, design, target)
-            metrics, log = run_reach(model, data, ctrl, seconds=seconds, fps=20)
+            metrics, log = run_reach(model, data, ctrl, seconds=seconds, fps=20,
+                                     frame_cb=emit_cb)
             successes.append(metrics.reach_success)
             energies.append(metrics.energy)
             roms.append(metrics.rom_violation)

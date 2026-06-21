@@ -354,7 +354,7 @@ class _StubVerifier:
         self._success = success
 
     def evaluate(self, problem, design, control_hints, *, mesh_dir=None,
-                 n_targets=4, seconds=3.0, seed=0):
+                 n_targets=4, seconds=3.0, seed=0, emit_cb=None):
         from prosthesis_rl.contracts import RewardBreakdown, SimFeedback
         bd = RewardBreakdown(success=self._success, energy_penalty=0.1,
                              rom_penalty=0.0, collision_penalty=0.0)

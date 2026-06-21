@@ -32,6 +32,50 @@ def _make_env_fn(design: DesignParams, mesh_dir, seed: int):
     return _init
 
 
+class _ProgressCallback:
+    """Minimal SB3-compatible callback that fires a progress_cb every N steps."""
+
+    def __init__(self, progress_cb, total: int, interval: int = 500) -> None:
+        self._cb = progress_cb
+        self._total = total
+        self._interval = interval
+        self.num_timesteps = 0
+
+    # SB3 callbacks duck-type: init / on_step / on_rollout_end
+    def init_callback(self, model) -> None:
+        self._model = model
+
+    def on_training_start(self, *_, **__) -> None:
+        pass
+
+    def on_rollout_start(self) -> None:
+        pass
+
+    def on_rollout_end(self) -> None:
+        pass
+
+    def on_step(self) -> bool:
+        self.num_timesteps = self._model.num_timesteps
+        if self.num_timesteps % self._interval < self._model.n_envs:
+            try:
+                ep_rew = self._model.ep_info_buffer
+                mean_rew = (
+                    float(sum(e["r"] for e in ep_rew) / len(ep_rew))
+                    if ep_rew else 0.0
+                )
+            except Exception:
+                mean_rew = 0.0
+            self._cb({
+                "timestep": self.num_timesteps,
+                "mean_reward": mean_rew,
+                "progress": self.num_timesteps / max(1, self._total),
+            })
+        return True
+
+    def on_training_end(self) -> None:
+        pass
+
+
 def train_reach_policy(
     timesteps: int = 150_000,
     *,
@@ -41,6 +85,7 @@ def train_reach_policy(
     seed: int = 0,
     eval_episodes: int = 20,
     verbose: int = 1,
+    progress_cb=None,
 ) -> dict[str, object]:
     """Train and save a PPO reach policy; return a small training summary."""
     from stable_baselines3 import PPO
@@ -61,7 +106,9 @@ def train_reach_policy(
         learning_rate=3e-4, ent_coef=0.0, n_epochs=10,
         policy_kwargs={"net_arch": [128, 128]},
     )
-    model.learn(total_timesteps=timesteps, progress_bar=False)
+
+    cb = _ProgressCallback(progress_cb, timesteps) if progress_cb else None
+    model.learn(total_timesteps=timesteps, progress_bar=False, callback=cb)
 
     POLICY_DIR.mkdir(parents=True, exist_ok=True)
     out_path = POLICY_DIR / name

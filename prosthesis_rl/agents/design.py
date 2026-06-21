@@ -244,6 +244,7 @@ class DesignAgent:
         n_targets: int = 4,
         seconds: float = 3.0,
         task_id: str = "reach_v1",
+        emit_cb=None,
     ) -> list[_FullEval]:
         """Run each candidate through the verifier with n_seeds fixed seeds.
 
@@ -265,6 +266,7 @@ class DesignAgent:
                     n_targets=n_targets,
                     seconds=seconds,
                     seed=seed,
+                    emit_cb=emit_cb,
                 )
                 rewards.append(fb.reward)
                 successes.append(fb.metrics.get("reach_success", 0.0))
