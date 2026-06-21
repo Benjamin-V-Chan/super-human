@@ -157,7 +157,7 @@ export default function DemoSingle() {
   return (
     <div className="demo">
       <header className="demo-header">
-        <div className="demo-brand">
+        <div className="demo-brand" style={{ cursor: 'pointer' }} onClick={() => { window.location.hash = '' }} title="Back to home">
           <span className="demo-logo">⬡</span>
           <div><div className="demo-title">ARMASAI</div><div className="demo-sub">Prosthesis Pipeline · single clip</div></div>
         </div>

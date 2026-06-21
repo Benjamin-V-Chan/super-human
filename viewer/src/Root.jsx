@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import App from './App.jsx'
 import DemoSingle from './demo/DemoSingle.jsx'
 import DemoPage from './demo/DemoPage.jsx'
+import LandingPage from './landing/LandingPage.jsx'
 
 // Hash router:
-//   (default) → single-clip, fully client-side pipeline (Vercel-deployable)
+//   (default) → landing page
+//   #demo     → single-clip, fully client-side pipeline (Vercel-deployable)
 //   #lab      → multi-clip Python pipeline (needs the Python backend host)
 //   #studio   → the design studio
 export default function Root() {
@@ -17,5 +19,6 @@ export default function Root() {
 
   if (hash === '#studio') return <App />
   if (hash === '#lab') return <DemoPage />
-  return <DemoSingle />
+  if (hash === '#demo') return <DemoSingle />
+  return <LandingPage />
 }
