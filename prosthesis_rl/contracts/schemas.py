@@ -331,3 +331,17 @@ class EvalResult(_JsonContract):
     mean_energy: float = 0.0
     collision_rate: float = 0.0
     video_path: str = ""
+
+    def validate(self) -> list[str]:
+        problems: list[str] = []
+        if not self.task_id:
+            problems.append("task_id is required")
+        if self.num_rollouts < 1:
+            problems.append("num_rollouts must be at least 1")
+        if not 0.0 <= self.success_rate <= 1.0:
+            problems.append("success_rate must be between 0 and 1")
+        if self.mean_energy < 0.0:
+            problems.append("mean_energy cannot be negative")
+        if not 0.0 <= self.collision_rate <= 1.0:
+            problems.append("collision_rate must be between 0 and 1")
+        return problems

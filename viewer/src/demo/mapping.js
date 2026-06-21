@@ -46,16 +46,3 @@ export function detectionToDesign(d) {
     source: d?.source || 'derived',
   }
 }
-
-// design → EvalResult shape (placeholder until Sim integration lands)
-export function expectedEval(design, action) {
-  return {
-    task_id: (action || 'adl_task').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 28) + '_v1',
-    num_rollouts: 20,
-    success_rate: 0.75,
-    mean_reward: 0.42,
-    mean_energy: round(0.25 + (design?.joint_stiffness ?? 1) * 0.05, 2),
-    collision_rate: 0.05,
-    video_path: 'runs/<task>/demo.mp4',
-  }
-}

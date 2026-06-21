@@ -3,6 +3,7 @@ import cors from 'cors'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenAI } from '@google/genai'
@@ -119,6 +120,54 @@ app.post('/api/analyze-frames', async (req, res) => {
   } catch (err) {
     console.error('analyze-frames:', err.message)
     res.status(502).json({ source: 'error', error: err.message })
+  }
+})
+
+// ── Real EvalResult: DesignParams → fixed-seed MuJoCo verifier rollouts ──────
+const REPO_ROOT = path.resolve(__dirname, '..')
+const EVAL_SCRIPT = path.join(REPO_ROOT, 'scripts', 'evaluate_design.py')
+const VENV_PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python')
+
+function runPythonJson(script, payload, timeoutMs = 30_000) {
+  return new Promise((resolve, reject) => {
+    const python = process.env.ARMASAI_PYTHON || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3')
+    const child = spawn(python, [script], { cwd: REPO_ROOT, stdio: ['pipe', 'pipe', 'pipe'] })
+    let stdout = '', stderr = ''
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM')
+      reject(new Error('evaluation timed out'))
+    }, timeoutMs)
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+    child.on('error', (err) => { clearTimeout(timer); reject(err) })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code !== 0) return reject(new Error(stderr.trim() || `evaluation exited with code ${code}`))
+      try { resolve(JSON.parse(stdout)) }
+      catch { reject(new Error('evaluation returned invalid JSON')) }
+    })
+    child.stdin.end(JSON.stringify(payload))
+  })
+}
+
+app.post('/api/evaluate-design', async (req, res) => {
+  const { problem, design, task_id: taskId } = req.body || {}
+  if (!design || typeof design !== 'object') {
+    return res.status(400).json({ error: 'DesignParams are required' })
+  }
+  try {
+    const result = await runPythonJson(EVAL_SCRIPT, {
+      problem: problem || {},
+      design,
+      task_id: taskId || 'adl_task_v1',
+      seeds: [0, 1, 2],
+      n_targets: 2,
+      seconds: 1.5,
+    })
+    res.json(result)
+  } catch (err) {
+    console.error('evaluate-design:', err.message)
+    res.status(502).json({ error: err.message })
   }
 })
 

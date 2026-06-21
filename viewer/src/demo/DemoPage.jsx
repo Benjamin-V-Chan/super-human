@@ -4,7 +4,7 @@ import SpecView from './SpecView.jsx'
 import IntegrationGate from './IntegrationGate.jsx'
 import RayBanUpload from './RayBanUpload.jsx'
 import { extractFrames } from './frames.js'
-import { detectionToProblemSpec, detectionToDesign, expectedEval } from './mapping.js'
+import { detectionToProblemSpec, detectionToDesign } from './mapping.js'
 import { PIPELINE, CAD_PARTS, TIMING } from './demoData.js'
 import './demo.css'
 
@@ -32,6 +32,7 @@ export default function DemoPage() {
   const [clip, setClip] = useState(null)
   const [detection, setDetection] = useState(null)
   const [design, setDesign] = useState(null)
+  const [evaluation, setEvaluation] = useState(null)
   const runId = useRef(0)
 
   const cadParams = design || detectionToDesign(SAMPLE)
@@ -40,7 +41,7 @@ export default function DemoPage() {
   const reset = useCallback(() => {
     runId.current += 1
     setStatus({}); setRevealed(0); setRunning(false)
-    setDetection(null); setDesign(null); setActive('capture')
+    setDetection(null); setDesign(null); setEvaluation(null); setActive('capture')
   }, [])
 
   // Resolve each stage's output payload from live state.
@@ -53,7 +54,7 @@ export default function DemoPage() {
           : { clip: '(none — upload a Ray-Ban clip)', view: 'egocentric' }
       case 'perception': return detectionToProblemSpec(detection)
       case 'design': return design
-      case 'simulation': return overrides.simulation || expectedEval(design, action)
+      case 'simulation': return evaluation || { status: 'not run' }
       case 'policy':
         return overrides.policy || {
           kind: 'scripted_ik',
@@ -66,13 +67,14 @@ export default function DemoPage() {
           status: revealed === CAD_PARTS.length ? 'complete' : 'assembling' }
       default: return null
     }
-  }, [clip, detection, design, overrides, revealed, cadParams, action])
+  }, [clip, detection, design, evaluation, overrides, revealed, cadParams, action])
 
   const play = useCallback(async () => {
     runId.current += 1
     const myRun = runId.current
     const alive = () => runId.current === myRun
     setStatus({}); setRevealed(0); setRunning(true)
+    setEvaluation(null)
     let det = detection, des = design
 
     for (const stage of PIPELINE) {
@@ -105,6 +107,22 @@ export default function DemoPage() {
         if (!alive()) return
         setDetection(det); setDesign(des)
         await sleep(Math.max(0, 700 - (Date.now() - t0)))
+      } else if (stage.key === 'simulation') {
+        const problem = detectionToProblemSpec(det)
+        const taskId = `${(det?.primary_action || 'adl_task').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 28)}_v1`
+        try {
+          const r = await fetch('/api/evaluate-design', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ problem, design: des, task_id: taskId }),
+          })
+          const result = await r.json()
+          if (!r.ok) throw new Error(result.error || 'evaluation failed')
+          if (!alive()) return
+          setEvaluation(result)
+        } catch (error) {
+          if (!alive()) return
+          setEvaluation({ status: 'error', error: error.message })
+        }
       } else if (stage.key === 'cad') {
         for (let p = 1; p <= CAD_PARTS.length; p++) {
           if (!alive()) return
