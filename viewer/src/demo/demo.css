@@ -80,6 +80,30 @@
 .node.capture { width: 290px; }
 .node-pov { margin-top: 10px; }
 
+/* ── Ray-Ban upload ── */
+.rb-upload { display: flex; flex-direction: column; gap: 8px; }
+.rb-drop { position: relative; border-radius: 8px; cursor: pointer; overflow: hidden; border: 1px dashed var(--border); }
+.rb-drop.over { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.rb-fakepov { opacity: .4; filter: saturate(.7); transition: opacity .2s; }
+.rb-drop:hover .rb-fakepov, .rb-drop.over .rb-fakepov { opacity: .25; }
+.rb-drop-cta {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px; text-align: center;
+  background: rgba(10,10,15,.35); pointer-events: none;
+}
+.rb-up-icon { font-size: 22px; color: var(--accent); }
+.rb-drop-cta b { font-size: 12.5px; }
+.rb-up-sub { font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); }
+
+.rb-preview { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.rb-preview.sampling { box-shadow: 0 0 0 1px var(--accent), 0 0 22px rgba(0,212,255,.25); }
+.rb-video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #000; }
+
+.rb-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 16px; }
+.rb-name { font-size: 11px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-stat { font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); }
+.rb-err { font-family: var(--mono); font-size: 10px; color: #f87171; }
+
 .node-top { display: flex; justify-content: space-between; align-items: center; }
 .node-icon { font-size: 22px; }
 .node-name { font-weight: 600; font-size: 14px; margin-top: 8px; }

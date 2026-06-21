@@ -1,11 +1,46 @@
 import express from 'express'
 import cors from 'cors'
+import multer from 'multer'
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
 import 'dotenv/config'
 
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+// ── Ray-Ban clip upload → saved into the repo's test_vids/ (ADL clip dir) ──────
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const CLIP_DIR = path.resolve(__dirname, '../test_vids')
+fs.mkdirSync(CLIP_DIR, { recursive: true })
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, CLIP_DIR),
+  filename: (_req, file, cb) => cb(null, file.originalname.replace(/[^\w.\- ]+/g, '_')),
+})
+const upload = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+  fileFilter: (_req, file, cb) => {
+    const ok = /video\/(mp4|quicktime)/.test(file.mimetype) || /\.(mp4|mov)$/i.test(file.originalname)
+    cb(ok ? null : new Error('Only .mp4 / .mov files are accepted'), ok)
+  },
+})
+
+app.post('/api/upload-clip', (req, res) => {
+  upload.single('clip')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message })
+    if (!req.file) return res.status(400).json({ error: 'No file received' })
+    res.json({
+      saved: true,
+      name: req.file.filename,
+      path: `test_vids/${req.file.filename}`,
+      size: req.file.size,
+    })
+  })
+})
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 

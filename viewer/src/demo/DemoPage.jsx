@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import CadAssembly from './CadAssembly.jsx'
 import JsonBlock from './JsonBlock.jsx'
 import IntegrationGate from './IntegrationGate.jsx'
-import RayBanPOV from './RayBanPOV.jsx'
+import RayBanUpload from './RayBanUpload.jsx'
 import { PIPELINE, CAD_PARTS, CAD_PARAMS, TIMING } from './demoData.js'
 import './demo.css'
 
@@ -22,6 +22,7 @@ export default function DemoPage() {
   const [active, setActive] = useState(null)  // key of focused stage
   const [overrides, setOverrides] = useState({}) // operator-completed integrations
   const [gate, setGate] = useState(null)      // stage key whose modal is open
+  const [clip, setClip] = useState(null)      // uploaded Ray-Ban clip
   const runId = useRef(0)
 
   const reset = useCallback(() => {
@@ -99,7 +100,16 @@ export default function DemoPage() {
         <div className="rail">
           {PIPELINE.map((stage, i) => {
             const st = status[stage.key] || 'idle'
-            const out = stageOutput(stage, overrides)
+            let out = stageOutput(stage, overrides)
+            if (stage.key === 'capture' && clip?.url && !clip.error) {
+              out = {
+                ...out,
+                clip: clip.name,
+                duration_s: clip.durationS ? Number(clip.durationS) : out.duration_s,
+                size_mb: Number(clip.sizeMB),
+                saved_to: clip.serverPath || '(local preview only)',
+              }
+            }
             const isPlaceholder = stage.status === 'pending' && !overrides[stage.key]
             const open = active === stage.key || st === 'done' || st === 'running'
             return (
@@ -117,11 +127,11 @@ export default function DemoPage() {
                   <div className="node-tech">{stage.tech}</div>
 
                   {stage.key === 'capture' && (
-                    <div className="node-pov">
-                      <RayBanPOV
-                        recording
+                    <div className="node-pov" onClick={(e) => e.stopPropagation()}>
+                      <RayBanUpload
+                        clip={clip}
+                        onClip={setClip}
                         sampling={status.perception === 'running'}
-                        taskHint="drinking · one-handed"
                       />
                     </div>
                   )}
