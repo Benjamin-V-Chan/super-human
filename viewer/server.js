@@ -5,14 +5,19 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenAI } from '@google/genai'
+import dotenv from 'dotenv'
 import 'dotenv/config'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// Also load the repo-root .env (GOOGLE_API_KEY / Vertex config live there).
+dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '30mb' })) // base64 video frames
 
 // ── Ray-Ban clip upload → saved into the repo's test_vids/ (ADL clip dir) ──────
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const CLIP_DIR = path.resolve(__dirname, '../test_vids')
 fs.mkdirSync(CLIP_DIR, { recursive: true })
 
@@ -43,6 +48,79 @@ app.post('/api/upload-clip', (req, res) => {
 })
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+// ── Gemini perception: analyze Ray-Ban frames → ProblemSpec detection ─────────
+function makeGenAI() {
+  const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+  if (apiKey) return new GoogleGenAI({ apiKey })
+  if ((process.env.GOOGLE_GENAI_USE_VERTEXAI || '').toLowerCase() === 'true') {
+    return new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+    })
+  }
+  return null
+}
+
+const PERCEPTION_PROMPT = `You are the perception module of a custom upper-limb prosthetic design system.
+Every subject is a candidate for an upper-limb prosthesis: one arm/hand is absent or non-functional,
+the other compensates. Read the functional situation from these sequential video frames.
+
+- The hand that does the work (reaching, holding, manipulating) is the RESIDUAL (functioning) side.
+- The opposite side is AFFECTED and needs the prosthesis. Decide sides ONLY from the footage.
+- Name the SPECIFIC action: concrete object + precise verb (e.g. "unscrewing a bottle cap",
+  "tearing a sheet of paper", "pouring water into a cup"). Do not default to any action.
+
+Respond with ONLY a JSON object of this exact shape:
+{
+  "primary_action": "<specific object + verb>",
+  "affected_side": "<left|right>",
+  "residual_side": "<left|right>",
+  "tasks": ["reach","grasp"],
+  "rom": {"shoulder_flexion": 110, "elbow_flexion": 130, "wrist_rotation": 60},
+  "residual_strength": {"shoulder": 0.7, "elbow": 0.6},
+  "grip_capacity": 0.4,
+  "residual_anthropometrics": {"upper_arm_len": 0.30, "forearm_len": 0.26, "hand_length": 0.19, "grip_span": 0.08},
+  "pain_points": ["..."]
+}`
+
+function extractJson(text) {
+  const m = text && text.match(/\{[\s\S]*\}/)
+  if (!m) return null
+  try { return JSON.parse(m[0]) } catch { return null }
+}
+
+// frames: array of base64 JPEG strings (no data: prefix)
+app.post('/api/analyze-frames', async (req, res) => {
+  const { frames = [] } = req.body
+  const ai = makeGenAI()
+  if (!ai) {
+    return res.json({ source: 'unavailable', error: 'No Gemini credentials (set GOOGLE_API_KEY or Vertex ADC)' })
+  }
+  if (!frames.length) return res.status(400).json({ error: 'No frames provided' })
+
+  try {
+    const parts = [
+      { text: PERCEPTION_PROMPT },
+      ...frames.slice(0, 8).map((b64) => ({
+        inlineData: { mimeType: 'image/jpeg', data: b64.replace(/^data:[^,]+,/, '') },
+      })),
+    ]
+    const result = await ai.models.generateContent({
+      model: process.env.GEMMA_MODEL || 'gemini-2.5-flash',
+      contents: [{ role: 'user', parts }],
+    })
+    const text = result.text ?? result.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') ?? ''
+    const detection = extractJson(text)
+    if (!detection) return res.json({ source: 'parse_error', raw: text.slice(0, 400) })
+    detection.source = 'gemini'
+    res.json(detection)
+  } catch (err) {
+    console.error('analyze-frames:', err.message)
+    res.status(502).json({ source: 'error', error: err.message })
+  }
+})
 
 const DESIGN_SYSTEM = `You are an expert prosthetist and biomedical engineer specializing in upper-limb prosthetics.
 
