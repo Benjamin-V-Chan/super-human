@@ -17,6 +17,9 @@ export function detectionToProblemSpec(d) {
     rom: constraints.rom || {},
     residual_strength: constraints.residual_strength || {},
     grip_capacity: constraints.grip_capacity ?? null,
+    // Carry the measured limb sizes through to the design agent so it sizes the
+    // prosthesis per-clip instead of falling back to adult defaults.
+    residual_anthropometrics: d.residual_anthropometrics || constraints.residual_anthropometrics || {},
     assumptions: d.pain_points || [],
     source: d.source || 'gemini',
   }
