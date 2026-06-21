@@ -74,7 +74,9 @@ def write_web_scene(design, mesh_dir, target=TARGET, *, mount_pos=MOUNT, objects
                               '    <mesh name="shoe_mesh" file="arm_links/shoe.stl"/>\n  </asset>')
             bodies = ""
             for o in shoe_objs:
-                bodies += (f'\n    <body name="obj_{o.name}" pos="{o.pos[0]:.5g} {o.pos[1]:.5g} 0.005">'
+                eul = getattr(o, "euler", (0.0, 0.0, 0.0))
+                bodies += (f'\n    <body name="obj_{o.name}" pos="{o.pos[0]:.5g} {o.pos[1]:.5g} 0.005" '
+                           f'euler="{eul[0]:.5g} {eul[1]:.5g} {eul[2]:.5g}">'
                            '\n      <geom type="mesh" mesh="shoe_mesh" rgba="0.62 0.4 0.27 1" '
                            'contype="0" conaffinity="0" group="2"/>\n    </body>')
             xml = xml.replace("  </worldbody>", bodies + "\n  </worldbody>")

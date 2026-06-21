@@ -97,6 +97,7 @@ class SceneObject:
     rgba: tuple[float, float, float, float] = (0.80, 0.30, 0.25, 1.0)
     fallback_half: Vec3 = (0.06, 0.10, 0.04)  # half-extents of the fallback box
     mjcf_dir: str = ""              # set when a real Gizmo bake exists
+    euler: Vec3 = (0.0, 0.0, 0.0)  # orientation (radians); e.g. spin a mesh to face the user
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -110,6 +111,7 @@ class SceneObject:
             rgba=tuple(float(x) for x in d.get("rgba", (0.80, 0.30, 0.25, 1.0))),  # type: ignore[arg-type]
             fallback_half=tuple(float(x) for x in d.get("fallback_half", (0.06, 0.10, 0.04))),  # type: ignore[arg-type]
             mjcf_dir=str(d.get("mjcf_dir", "")),
+            euler=tuple(float(x) for x in d.get("euler", (0.0, 0.0, 0.0))),  # type: ignore[arg-type]
         )
 
 

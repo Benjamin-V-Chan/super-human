@@ -60,8 +60,9 @@ def _wp(name, pos, *, w=1.0, tol=0.05, dwell=0.0) -> dict[str, Any]:
     return {"name": name, "pos": pos, "weight": w, "tolerance_m": tol, "dwell_s": dwell}
 
 
-def _obj(name, prompt, pos, *, rgba, half) -> dict[str, Any]:
-    return {"name": name, "prompt": prompt, "pos": pos, "rgba": rgba, "fallback_half": half}
+def _obj(name, prompt, pos, *, rgba, half, euler=(0.0, 0.0, 0.0)) -> dict[str, Any]:
+    return {"name": name, "prompt": prompt, "pos": pos, "rgba": rgba,
+            "fallback_half": half, "euler": euler}
 
 
 # Ordered: the first entry whose keyword appears in the action/task text wins.
@@ -75,8 +76,10 @@ _LIBRARY: list[dict[str, Any]] = [
         "objects": [
             # Off to the prosthesis side (-x) so the hand reaches down its open
             # side, not through the wearer's lap/thigh (the body sits at +x).
+            # euler z=pi: spin the real Gizmo sneaker 180° so its toe faces the wearer.
             _obj("shoe", "a single sneaker / running shoe with laces, sitting on the floor",
-                 (-0.18, 0.28, 0.07), rgba=(0.55, 0.35, 0.22, 1.0), half=(0.05, 0.12, 0.045)),
+                 (-0.18, 0.28, 0.07), rgba=(0.55, 0.35, 0.22, 1.0), half=(0.05, 0.12, 0.045),
+                 euler=(0.0, 0.0, 3.14159)),
         ],
         "waypoints": [
             _wp("approach", (-0.14, 0.20, 0.34), w=1.0),

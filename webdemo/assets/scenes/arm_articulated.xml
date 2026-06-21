@@ -15,13 +15,14 @@
     <mesh name="upper_arm_mesh" file="arm_links/upper_arm.stl"/>
     <mesh name="forearm_mesh" file="arm_links/forearm.stl"/>
     <mesh name="gripper_mesh" file="arm_links/gripper.stl"/>
+    <mesh name="shoe_mesh" file="arm_links/shoe.stl"/>
   </asset>
   <worldbody>
     <light pos="0 0 4" dir="0 0 -1" diffuse="0.9 0.9 0.9"/>
     <geom name="floor" type="plane" size="0 0 0.05" material="grid"/>
-    <site name="target" pos="-0.012448 0.1589 0.862" size="0.025"
+    <site name="target" pos="-0.25632 0.33941 0.17747" size="0.025"
           rgba="0.1 0.9 0.2 0.9" group="1"/>
-    <body name="mount" pos="0 -0.4 1">
+    <body name="mount" pos="0 0.25 0.7">
       <geom name="mount_geom" type="box" size="0.04 0.04 0.04" rgba="0.3 0.3 0.35 1" density="1010.0"/>
       <body name="upper_arm" pos="0 0 0">
         <joint name="shoulder_flex" type="hinge" axis="0 1 0" range="-1.5708 2.0944" damping="0.5" armature="0.01"/>
@@ -39,27 +40,28 @@
       </body>
     </body>
     <body name="human" pos="0 0 0">
-      <geom type="capsule" fromto="0 -0.4 1 0.52 -0.4 1" size="0.05" rgba="0.27 0.42 0.55 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.26 -0.4 0.49 0.26 -0.4 1.01" size="0.12" rgba="0.27 0.42 0.55 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.26 -0.4 1.02 0.26 -0.4 1.09" size="0.045" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="sphere" pos="0.26 -0.4 1.21" size="0.105" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.52 -0.4 1 0.56 -0.3 0.72" size="0.05" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.56 -0.3 0.72 0.5 -0.1 0.57" size="0.045" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="sphere" pos="0.5 -0.1 0.57" size="0.05" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.16 -0.4 0.47 0.36 -0.4 0.47" size="0.1" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.17 -0.4 0.47 0.17 -0.02 0.45" size="0.07" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.35 -0.4 0.47 0.35 -0.02 0.45" size="0.07" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.17 -0.02 0.45 0.17 0 0.07" size="0.055" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.35 -0.02 0.45 0.35 0 0.07" size="0.055" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.17 0 0.05 0.17 0.12 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="capsule" fromto="0.35 0 0.05 0.35 0.12 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
-      <geom type="box" pos="0.26 -0.4 0.19" size="0.22 0.2 0.19" rgba="0.34 0.30 0.27 1" contype="0" conaffinity="0" group="2"/>
-    </body>
-      <body name="obj_drawer" pos="0 0.2 0.8">
-      <geom name="obj_drawer_geom" type="box" size="0.18 0.12 0.1" rgba="0.45 0.32 0.24 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0 0.25 0.7 0.52 0.25 0.7" size="0.05" rgba="0.27 0.42 0.55 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.26 0.25 0.49 0.26 0.25 0.71" size="0.12" rgba="0.27 0.42 0.55 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.26 0.25 0.72 0.26 0.25 0.79" size="0.045" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="sphere" pos="0.26 0.25 0.91" size="0.105" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.52 0.25 0.7 0.56 0.35 0.42" size="0.05" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.56 0.35 0.42 0.5 0.55 0.57" size="0.045" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="sphere" pos="0.5 0.55 0.57" size="0.05" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.16 0.25 0.47 0.36 0.25 0.47" size="0.1" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.17 0.25 0.47 0.17 0.63 0.45" size="0.07" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.35 0.25 0.47 0.35 0.63 0.45" size="0.07" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.17 0.63 0.45 0.17 0.65 0.07" size="0.055" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.35 0.63 0.45 0.35 0.65 0.07" size="0.055" rgba="0.20 0.22 0.28 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.17 0.65 0.05 0.17 0.77 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="capsule" fromto="0.35 0.65 0.05 0.35 0.77 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
+      <geom type="box" pos="0.26 0.25 0.19" size="0.22 0.2 0.19" rgba="0.34 0.30 0.27 1" contype="0" conaffinity="0" group="2"/>
     </body>
 
-    <body name="target_marker" mocap="true" pos="-0.012448 0.1589 0.862">
+    <body name="obj_shoe" pos="-0.25041 0.36564 0.005" euler="0 0 3.1416">
+      <geom type="mesh" mesh="shoe_mesh" rgba="0.62 0.4 0.27 1" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <body name="target_marker" mocap="true" pos="-0.25632 0.33941 0.17747">
       <geom type="sphere" size="0.045" rgba="0.12 0.95 0.28 1" contype="0" conaffinity="0"/>
     </body>
   </worldbody>

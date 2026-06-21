@@ -82,11 +82,12 @@ def main() -> None:
     ap.add_argument("--fleet", type=int, default=0,
                     help="show a grid of N agents (one PPO policy, N randomized task "
                          'placements) in live.html, e.g. --fleet 36 --scenario "tie my shoe"')
-    ap.add_argument("--gizmo-scene",
-                    default=str(ROOT / "assets" / "scenes" / "gizmo" / "_drawer_cabinet"
-                                / "js7dv7ry4ttbm1ccx8nvsbjms9892893.xml"),
-                    help="render the arm training INSIDE this Gizmo scene MJCF (single-"
-                         "agent scenario mode). Set to '' to disable. Default: drawer cabinet.")
+    ap.add_argument("--gizmo-scene", default="",
+                    help="optional: render the arm training INSIDE this Gizmo scene MJCF "
+                         "(a room). Default: empty = no room, just the arm + the shoe.")
+    ap.add_argument("--randomize-cm", type=float, default=10.0,
+                    help="randomize the shoe/target position by +- this many cm each "
+                         "run/reset (and per training episode). 0 = fixed.")
     args = ap.parse_args()
 
     import mujoco
@@ -154,24 +155,10 @@ def main() -> None:
             print(f"[live] FLEET: {fleet} agents on randomized tie-shoe placements "
                   f"({cols} cols, nq={fleet_nq}) -> arm_fleet.xml", flush=True)
         else:
-            # Single agent: one task-target glow (no mid-air intermediate dots).
-            ewp.write_web_scene(design, mesh_dir, target_pos, mount_pos=mount,
-                                objects=scenario.objects)
-            # Drop the arm into a Gizmo scene (the room/cabinet) for the viewer: the
-            # live policy still trains on the scenario waypoints, but the browser
-            # shows the arm inside the generated environment. The arm joints are
-            # listed first in the merged model, so the streamed trajectory drives the
-            # arm and the scene props stay at rest.
-            gizmo = Path(args.gizmo_scene) if args.gizmo_scene else None
-            if gizmo and gizmo.is_file():
-                from prosthesis_rl.sim.gizmo_scene_merge import publish_merged_scene
-                publish_merged_scene(
-                    WEBDEMO / "assets" / "scenes" / "arm_articulated.xml",
-                    gizmo, scenario, LIVE / "gizmo_scene.xml")
-                print(f"[live] arm training inside Gizmo scene {gizmo.name} "
-                      f"-> assets/live/gizmo_scene.xml", flush=True)
-            else:
-                (LIVE / "gizmo_scene.xml").unlink(missing_ok=True)  # plain scene
+            # Plain scene: just the arm + the shoe on the ground (no room). The web
+            # scene (arm + the randomized shoe) is (re)written per run by
+            # reroll_display() below; optionally merge a Gizmo room if one is given.
+            (LIVE / "gizmo_scene.xml").unlink(missing_ok=True)
     else:
         target_pos = FIXED_TARGET
         (LIVE / "gizmo_scene.xml").unlink(missing_ok=True)  # fixed reach: no Gizmo room
@@ -182,12 +169,47 @@ def main() -> None:
     eval_model = mujoco.MjModel.from_xml_string(
         build_mjcf(design, mount_pos=mount, mesh_dir=mesh_dir), {})
     ee_id = eval_model.site(EE_SITE).id
-    fixed_target = np.array(target_pos)
-    # Success/final-dist are measured around the SAME demo target the viewer shows
-    # (small jitter), so "Success rate" agrees with the "fixed reach: HIT" badge
-    # instead of using faraway random targets the policy never sees.
     _jrng = np.random.default_rng(123)
-    eval_targets = [fixed_target + _jrng.uniform(-0.03, 0.03, size=3) for _ in range(5)]
+
+    # --- shoe/target randomization (single-agent scenario) -------------------
+    # The shoe (and the reach target) are randomized by +-args.randomize_cm:
+    #   * TRAINING: every episode draws a goal from this box (domain randomization)
+    #     via ScenarioReachEnv(target_band=...), so the policy learns to grab the
+    #     shoe anywhere in range;
+    #   * VIEWER: each run/reset re-rolls the shown shoe position so you see it grab
+    #     the shoe at a different spot each time.
+    _R = max(0.0, args.randomize_cm) / 100.0
+    _nom_tgt = np.array(target_pos)
+    scenario_band = None
+    if scenario is not None and not fleet and _R > 0:
+        d_box = np.array([_R, _R, min(_R, 0.02)])  # mostly x/y; keep z near the floor
+        scenario_band = (_nom_tgt - d_box, _nom_tgt + d_box)
+
+    target_holder = [_nom_tgt.copy()]
+    eval_targets_holder = [[_nom_tgt + _jrng.uniform(-0.03, 0.03, size=3) for _ in range(5)]]
+    _shoe_obj = next((o for o in (scenario.objects if scenario else []) if o.name == "shoe"), None)
+    _nom_shoe = np.array(_shoe_obj.pos) if _shoe_obj is not None else None
+    _disp_rng = np.random.default_rng(args.seed + 11)
+
+    def reroll_display():
+        """Pick a new shoe/target position (+-_R) and rewrite the web scene, so each
+        run/reset visibly grabs the shoe at a different spot. No-op for fleet/fixed."""
+        if scenario is None or fleet:
+            return
+        off = np.array([_disp_rng.uniform(-_R, _R), _disp_rng.uniform(-_R, _R), 0.0]) if _R > 0 \
+            else np.zeros(3)
+        target_holder[0] = _nom_tgt + off
+        eval_targets_holder[0] = [target_holder[0] + _jrng.uniform(-0.03, 0.03, size=3)
+                                  for _ in range(5)]
+        if _shoe_obj is not None:
+            _shoe_obj.pos = tuple(_nom_shoe + off)
+        ewp.write_web_scene(design, mesh_dir, tuple(target_holder[0]), mount_pos=mount,
+                            objects=scenario.objects)
+        (LIVE / "gizmo_scene.xml").unlink(missing_ok=True)  # no room
+        print(f"[live] shoe @ xy={tuple(round(float(x), 2) for x in target_holder[0][:2])} "
+              f"(+-{args.randomize_cm:.0f}cm)", flush=True)
+
+    reroll_display()  # initial placement (no-op for non-scenario / fleet)
 
     # Initial "starting up" status so the page has something to show immediately.
     atomic_write_json(LIVE / "status.json",
@@ -198,22 +220,22 @@ def main() -> None:
     reset_event = threading.Event()
 
     def evaluate(model):
-        # Streamed trajectory: the fixed reach, current policy.
+        # Streamed trajectory: reach the CURRENT (randomized) shoe target.
         data = mujoco.MjData(eval_model)
         frames: list[list[float]] = []
         m_fixed, _ = run_policy_reach(
-            eval_model, data, design, fixed_target, model,
+            eval_model, data, design, target_holder[0], model,
             seconds=args.eval_seconds, fps=args.fps,
             frame_cb=lambda d: frames.append([float(x) for x in d.qpos[: eval_model.nq]]))
-        # Success metric over the fixed random eval set.
+        # Success metric over a small jittered set around the current target.
         succ, finals = 0, []
-        for tgt in eval_targets:
+        for tgt in eval_targets_holder[0]:
             d2 = mujoco.MjData(eval_model)
             mm, _ = run_policy_reach(eval_model, d2, design, tgt, model,
                                      seconds=args.eval_seconds, fps=args.fps)
             succ += int(mm.reach_success)
             finals.append(mm.final_distance)
-        return frames, m_fixed, succ / len(eval_targets), float(np.mean(finals)) * 100.0
+        return frames, m_fixed, succ / len(eval_targets_holder[0]), float(np.mean(finals)) * 100.0
 
     def evaluate_fleet(model):
         """Roll the policy on each of the N randomized targets; stack into one
@@ -279,7 +301,7 @@ def main() -> None:
                     "dt": 1.0 / args.fps, "fps": args.fps, "nq": int(eval_model.nq),
                     "joints": design.joint_names,
                     "links": [link.name for link in design.links],
-                    "target": list(target_pos), "mount": list(mount),
+                    "target": [float(x) for x in target_holder[0]], "mount": list(mount),
                     "scenario": (scenario.task_id if scenario else None),
                     "posture": (scenario.posture if scenario else None),
                     "success": bool(m_fixed.reach_success),
@@ -301,7 +323,8 @@ def main() -> None:
     def make_env(i: int):
         if scenario is not None:
             return Monitor(ScenarioReachEnv(scenario, design, mesh_dir=mesh_dir,
-                                            seed=args.seed + i, target_band=fleet_band))
+                                            seed=args.seed + i,
+                                            target_band=(fleet_band if fleet else scenario_band)))
         return Monitor(ReachEnv(design, mesh_dir=mesh_dir, seed=args.seed + i))
 
     venv = DummyVecEnv([(lambda i=i: make_env(i)) for i in range(args.n_envs)])
@@ -327,6 +350,7 @@ def main() -> None:
             history.clear()
             t0_holder[0] = time.time()
             reset_event.clear()
+            reroll_display()  # new random shoe position each run/reset
             model = fresh_model()
             atomic_write_json(LIVE / "status.json",
                               {"running": True, "step": 0, "total": args.steps, "history": []})

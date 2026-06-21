@@ -521,6 +521,7 @@ async function loadGizmoScene(url) {
   bodies = buildBodies(model, scene);
   mujoco.mj_forward(model, data);
   startMS = null; // restart trajectory timing on the new model
+  ground.visible = false; // the Gizmo room provides its own floor — hide the placeholder
 }
 
 // Auto-load the published Gizmo scene on open (no visible controls): whichever
