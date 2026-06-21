@@ -56,7 +56,7 @@
       <geom type="box" pos="0.18 -0.4 0.19" size="0.22 0.2 0.19" rgba="0.34 0.30 0.27 1" contype="0" conaffinity="0" group="2"/>
     </body>
 
-    <body name="target_marker" pos="0 0.22 0.95">
+    <body name="target_marker" mocap="true" pos="0 0.22 0.95">
       <geom type="sphere" size="0.03" rgba="0.1 0.9 0.2 0.85" contype="0" conaffinity="0"/>
     </body>
   </worldbody>

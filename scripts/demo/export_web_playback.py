@@ -54,7 +54,7 @@ def write_web_scene(design, mesh_dir, target=TARGET) -> Path:
                       '<compiler angle="radian" autolimits="true" meshdir="."/>')
     xml = xml.replace(f'file="{Path(mesh_dir).resolve()}/', 'file="arm_links/')
     tx, ty, tz = target
-    marker = (f'\n    <body name="target_marker" pos="{tx:.5g} {ty:.5g} {tz:.5g}">'
+    marker = (f'\n    <body name="target_marker" mocap="true" pos="{tx:.5g} {ty:.5g} {tz:.5g}">'
               '\n      <geom type="sphere" size="0.03" rgba="0.1 0.9 0.2 0.85" '
               'contype="0" conaffinity="0"/>\n    </body>')
     xml = xml.replace("  </worldbody>", marker + "\n  </worldbody>")

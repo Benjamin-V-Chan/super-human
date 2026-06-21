@@ -33,31 +33,47 @@ image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.11"
     )
-    .apt_install("git", "colmap", "imagemagick", "ffmpeg", "libgl1", "libglib2.0-0", "wget")
+    .apt_install("git", "colmap", "imagemagick", "ffmpeg", "libgl1", "libglib2.0-0",
+                 "wget", "build-essential", "g++", "gcc")
+    .env({"CC": "gcc", "CXX": "g++"})  # steer torch cpp_extension to g++, not clang++
     .pip_install(
         "torch==2.1.2", "torchvision==0.16.2",
         index_url="https://download.pytorch.org/whl/cu121",
     )
     .pip_install("plyfile", "tqdm", "numpy", "opencv-python-headless")
+    .pip_install("setuptools", "wheel", "ninja")  # build deps for --no-build-isolation
     .run_commands(
         "git clone https://github.com/graphdeco-inria/gaussian-splatting /gs --recursive",
-        # Build the CUDA submodules against the installed torch.
-        f"cd /gs && TORCH_CUDA_ARCH_LIST={CUDA_ARCH} pip install "
+        # Build the CUDA submodules against the installed torch. --no-build-isolation
+        # is required: their setup.py imports torch at build time, which pip's
+        # isolated build env would otherwise hide.
+        f"cd /gs && TORCH_CUDA_ARCH_LIST={CUDA_ARCH} pip install --no-build-isolation "
         "./submodules/diff-gaussian-rasterization ./submodules/simple-knn",
         # fused-ssim is required by newer train.py revisions; install if present.
         f"cd /gs && if [ -d submodules/fused-ssim ]; then "
-        f"TORCH_CUDA_ARCH_LIST={CUDA_ARCH} pip install ./submodules/fused-ssim; fi",
+        f"TORCH_CUDA_ARCH_LIST={CUDA_ARCH} pip install --no-build-isolation "
+        f"./submodules/fused-ssim; fi",
     )
+    # APPENDED LAST (after the cached CUDA build) so this cheap layer doesn't
+    # invalidate it: torch 2.1.2 needs numpy<2; the base pulled numpy 2.x
+    # ("RuntimeError: Numpy is not available" at train).
+    .pip_install("numpy<2")
 )
 
 app = modal.App("room-gsplat", image=image)
 
 
-def _tar_frames(frames_dir: str) -> bytes:
+def _tar_frames(frames_dir: str, max_frames: int = 60) -> bytes:
     buf = io.BytesIO()
     paths = sorted(Path(frames_dir).glob("*.jpg")) + sorted(Path(frames_dir).glob("*.png"))
     if not paths:
         raise SystemExit(f"no .jpg/.png frames in {frames_dir} (run extract_frames.py first)")
+    # Subsample uniformly: exhaustive COLMAP matching is O(n^2) and the CPU-SIFT
+    # pass OOM-kills the container on ~100+ frames. ~60 keeps good coverage, fast.
+    if len(paths) > max_frames:
+        n = len(paths)
+        idx = sorted({round(i * (n - 1) / (max_frames - 1)) for i in range(max_frames)})
+        paths = [paths[i] for i in idx]
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for p in paths:
             tar.add(p, arcname=p.name)
@@ -65,7 +81,7 @@ def _tar_frames(frames_dir: str) -> bytes:
     return buf.getvalue()
 
 
-@app.function(gpu="A10G", timeout=3600)
+@app.function(gpu="A10G", timeout=3600, memory=32768)  # 32GB: CPU-SIFT COLMAP is RAM-hungry
 def train_splat(frames_tar: bytes, iterations: int = 7000) -> bytes:
     """COLMAP the frames, then train Inria 3DGS; return point_cloud.ply bytes."""
     work = Path("/work")

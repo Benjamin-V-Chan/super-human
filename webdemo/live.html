@@ -112,6 +112,25 @@
       #reach b {
         font-size: 20px;
       }
+      #reset-btn {
+        width: 100%;
+        margin: 0 0 14px;
+        padding: 9px 12px;
+        background: var(--card);
+        color: var(--fg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      #reset-btn:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      #reset-btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
 
       .card {
         background: var(--card);
@@ -135,7 +154,7 @@
       }
       .card canvas {
         width: 100%;
-        height: 64px;
+        height: 96px;
         display: block;
         margin-top: 6px;
       }
@@ -148,13 +167,21 @@
         vertical-align: middle;
       }
     </style>
+    <script
+      async
+      src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"
+    ></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./node_modules/three/build/three.module.js",
+          "three/addons/": "./node_modules/three/examples/jsm/",
+          "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
+        }
+      }
+    </script>
   </head>
   <body>
-    <div id="caption">
-      <div><b>ArmasAI</b> — live PPO, per-link CAD arm</div>
-      <div class="sub" id="sub">connecting to training backend…</div>
-    </div>
-    <button id="dash-toggle">Hide metrics ▶</button>
     <div id="dash">
       <h1>
         <span class="dot" id="status-dot" style="background: #888"></span>PPO ·
@@ -163,6 +190,7 @@
       <div class="meta" id="dash-meta">waiting for backend…</div>
       <div id="bar"><div id="bar-fill"></div></div>
       <div id="reach">fixed reach: <b id="reach-val">—</b></div>
+      <button id="reset-btn">↻ Reset training</button>
       <div id="dash-cards"></div>
     </div>
     <script type="module" src="./src/live.js"></script>

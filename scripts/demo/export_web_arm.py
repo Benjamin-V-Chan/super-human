@@ -68,7 +68,7 @@ def build_xml(mesh_file: str) -> str:
         <site name="ee" pos="0 0 -0.64" size="0.015" rgba="0.95 0.2 0.2 1" group="1"/>
       </body>
     </body>{_human(MOUNT, "left")}
-    <body name="target_marker" pos="{tx} {ty} {tz}">
+    <body name="target_marker" mocap="true" pos="{tx} {ty} {tz}">
       <geom type="sphere" size="0.03" rgba="0.1 0.9 0.2 0.85" contype="0" conaffinity="0"/>
     </body>
   </worldbody>

@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "../node_modules/three/examples/jsm/controls/OrbitControls.js";
 import load_mujoco from "../node_modules/mujoco-js/dist/mujoco_wasm.js";
+import { attachSplatBackdrop } from "./splatBackdrop.js";
 
 const SCENE = "arm_articulated.xml";
 const LINKS = ["upper_arm", "forearm", "gripper"];
@@ -61,6 +62,7 @@ function buildBodies(model, scene) {
     if (!(model.geom_group[g] < 3)) continue;
     const b = model.geom_bodyid[g];
     const type = model.geom_type[g];
+    if (type == mujoco.mjtGeom.mjGEOM_PLANE.value) continue; // splat is the floor
     const size = [
       model.geom_size[g * 3 + 0],
       model.geom_size[g * 3 + 1],
@@ -73,11 +75,7 @@ function buildBodies(model, scene) {
     }
 
     let geometry = new THREE.SphereGeometry(size[0] * 0.5);
-    let isPlane = false;
-    if (type == mujoco.mjtGeom.mjGEOM_PLANE.value) {
-      isPlane = true;
-      geometry = new THREE.PlaneGeometry(8, 8);
-    } else if (type == mujoco.mjtGeom.mjGEOM_SPHERE.value) {
+    if (type == mujoco.mjtGeom.mjGEOM_SPHERE.value) {
       geometry = new THREE.SphereGeometry(size[0]);
     } else if (type == mujoco.mjtGeom.mjGEOM_CAPSULE.value) {
       geometry = new THREE.CapsuleGeometry(size[0], size[1] * 2.0, 12, 20);
@@ -129,8 +127,7 @@ function buildBodies(model, scene) {
     mesh.receiveShadow = true;
     bodies[b].add(mesh);
     getPosition(model.geom_pos, g, mesh.position);
-    if (!isPlane) getQuaternion(model.geom_quat, g, mesh.quaternion);
-    else mesh.rotateX(-Math.PI / 2);
+    getQuaternion(model.geom_quat, g, mesh.quaternion);
   }
   return bodies;
 }
@@ -176,6 +173,11 @@ window.addEventListener("resize", () => {
 
 const bodies = buildBodies(model, scene);
 
+// Room Gaussian splat as the backdrop + floor (shared module + WASD/QE/ZX/P align
+// tool). Fire-and-forget: the arm + dashboard render immediately while the (large)
+// splat loads, then it pops in. Render-only — MuJoCo still owns all physics.
+attachSplatBackdrop(scene, { align: true });
+
 // --- trajectory playback (current policy) -----------------------------------
 let traj = null;
 let trajStep = -1;
@@ -208,26 +210,25 @@ function render(timeMS) {
 renderer.setAnimationLoop(render);
 
 // --- dashboard --------------------------------------------------------------
+// Only the metrics that tell you whether the arm is learning the task.
 const METRICS = [
-  { key: "reward", label: "Episode reward", fmt: (v) => v.toFixed(2) },
+  {
+    key: "reward",
+    label: "Episode reward",
+    fmt: (v) => v.toFixed(2),
+    yfmt: (v) => v.toFixed(1),
+  },
   {
     key: "success_rate",
     label: "Success rate",
     fmt: (v) => (v * 100).toFixed(0) + "%",
+    yfmt: (v) => (v * 100).toFixed(0) + "%",
   },
   {
     key: "final_cm",
-    label: "Mean final dist",
+    label: "Mean final dist (cm)",
     fmt: (v) => v.toFixed(1) + " cm",
-  },
-  { key: "value_loss", label: "Value loss", fmt: (v) => v.toFixed(3) },
-  { key: "policy_loss", label: "Policy loss", fmt: (v) => v.toFixed(4) },
-  { key: "entropy", label: "Entropy", fmt: (v) => v.toFixed(3) },
-  { key: "approx_kl", label: "Approx KL", fmt: (v) => v.toFixed(4) },
-  {
-    key: "explained_variance",
-    label: "Explained variance",
-    fmt: (v) => v.toFixed(2),
+    yfmt: (v) => v.toFixed(0),
   },
 ];
 
@@ -239,23 +240,37 @@ for (const m of METRICS) {
   card.innerHTML =
     `<div class="row"><span class="title">${m.label}</span>` +
     `<span class="val" id="val-${m.key}">—</span></div>` +
-    `<canvas id="cv-${m.key}" width="340" height="64"></canvas>`;
+    `<canvas id="cv-${m.key}" width="330" height="96"></canvas>`;
   cardsEl.appendChild(card);
   cards[m.key] = card.querySelector("canvas");
 }
 
-function drawChart(canvas, steps, vals, color) {
+function fmtStep(s) {
+  return s >= 1000 ? Math.round(s / 1000) + "k" : String(Math.round(s));
+}
+
+function drawChart(canvas, steps, vals, color, yfmt) {
   const ctx = canvas.getContext("2d");
   const W = canvas.width;
   const H = canvas.height;
   ctx.clearRect(0, 0, W, H);
+  const padL = 40,
+    padR = 10,
+    padT = 8,
+    padB = 18; // room for y labels (left) + x labels (bottom)
+  ctx.font = "9px -apple-system, Arial";
+
   const pts = [];
   for (let i = 0; i < vals.length; i++) {
     if (vals[i] === null || vals[i] === undefined || Number.isNaN(vals[i]))
       continue;
     pts.push([steps[i], vals[i]]);
   }
-  if (pts.length < 2) return;
+  if (pts.length < 2) {
+    ctx.fillStyle = "#54697a";
+    ctx.fillText("collecting…", padL, H / 2);
+    return;
+  }
   let xmin = pts[0][0],
     xmax = pts[pts.length - 1][0];
   let ymin = Infinity,
@@ -268,17 +283,44 @@ function drawChart(canvas, steps, vals, color) {
     ymax += 1;
     ymin -= 1;
   }
-  const pad = 6;
-  const sx = (x) => pad + ((x - xmin) / (xmax - xmin || 1)) * (W - 2 * pad);
-  const sy = (y) => H - pad - ((y - ymin) / (ymax - ymin)) * (H - 2 * pad);
-  // baseline grid
-  ctx.strokeStyle = "#22303a";
+  const sx = (x) =>
+    padL + ((x - xmin) / (xmax - xmin || 1)) * (W - padL - padR);
+  const sy = (y) => H - padB - ((y - ymin) / (ymax - ymin)) * (H - padT - padB);
+
+  // axes (left = value, bottom = step)
+  ctx.strokeStyle = "#2a3742";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(pad, H - pad);
-  ctx.lineTo(W - pad, H - pad);
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, H - padB);
+  ctx.lineTo(W - padR, H - padB);
   ctx.stroke();
-  // line
+  // zero gridline if the range crosses 0
+  if (ymin < 0 && ymax > 0) {
+    ctx.strokeStyle = "#1d2a33";
+    ctx.beginPath();
+    ctx.moveTo(padL, sy(0));
+    ctx.lineTo(W - padR, sy(0));
+    ctx.stroke();
+  }
+
+  // y-axis labels (max top, min bottom)
+  ctx.fillStyle = "#7d93a3";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(yfmt(ymax), padL - 4, sy(ymax) + 4);
+  ctx.fillText(yfmt(ymin), padL - 4, sy(ymin) - 4);
+  // x-axis labels (first/last step + axis title)
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillText(fmtStep(xmin), padL, H - padB + 4);
+  ctx.textAlign = "right";
+  ctx.fillText(fmtStep(xmax), W - padR, H - padB + 4);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#54697a";
+  ctx.fillText("step", (padL + (W - padR)) / 2, H - padB + 4);
+
+  // series
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.6;
   ctx.beginPath();
@@ -286,7 +328,6 @@ function drawChart(canvas, steps, vals, color) {
     i ? ctx.lineTo(sx(x), sy(y)) : ctx.moveTo(sx(x), sy(y)),
   );
   ctx.stroke();
-  // last point
   const [lx, ly] = pts[pts.length - 1];
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -322,22 +363,36 @@ function updateDashboard(status) {
       steps,
       hist.map((h) => h[m.key]),
       m.key === "reward" || m.key === "success_rate" ? "#6fe6a0" : "#5aa9e6",
+      m.yfmt || ((y) => String(Math.round(y))),
     );
   }
-  subEl.textContent = status.running
-    ? `training live · step ${status.step.toLocaleString()}`
-    : `training complete · ${status.step.toLocaleString()} steps`;
+  if (subEl)
+    subEl.textContent = status.running
+      ? `training live · step ${status.step.toLocaleString()}`
+      : `training complete · ${status.step.toLocaleString()} steps`;
 }
 
-// --- toggle -----------------------------------------------------------------
-const dash = document.getElementById("dash");
-const toggle = document.getElementById("dash-toggle");
-toggle.addEventListener("click", () => {
-  dash.classList.toggle("hidden");
-  toggle.textContent = dash.classList.contains("hidden")
-    ? "Show metrics ◀"
-    : "Hide metrics ▶";
-});
+// --- reset button -----------------------------------------------------------
+const resetBtn = document.getElementById("reset-btn");
+if (resetBtn) {
+  resetBtn.addEventListener("click", async () => {
+    resetBtn.disabled = true;
+    resetBtn.textContent = "resetting…";
+    try {
+      await fetch("/reset?_=" + Date.now());
+    } catch (e) {
+      /* backend not the trainer (static server) — nothing to reset */
+    }
+    // Restart the viewer playback so it picks up the fresh policy's first rollout.
+    traj = null;
+    trajStep = -1;
+    startMS = null;
+    setTimeout(() => {
+      resetBtn.disabled = false;
+      resetBtn.textContent = "↻ Reset training";
+    }, 1500);
+  });
+}
 
 // --- poll loop --------------------------------------------------------------
 async function poll() {
@@ -345,7 +400,8 @@ async function poll() {
     const status = await (await fetch(STATUS_URL + "?_=" + Date.now())).json();
     updateDashboard(status);
   } catch (e) {
-    subEl.textContent = "waiting for training backend (run train_live.py)…";
+    if (subEl)
+      subEl.textContent = "waiting for training backend (run train_live.py)…";
   }
   try {
     const t = await (await fetch(TRAJ_URL + "?_=" + Date.now())).json();

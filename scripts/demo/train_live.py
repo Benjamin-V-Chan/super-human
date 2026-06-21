@@ -46,10 +46,21 @@ def atomic_write_json(path: Path, obj) -> None:
     os.replace(tmp, path)
 
 
-def serve(directory: Path, port: int):
+def serve(directory: Path, port: int, reset_event: threading.Event):
     class QuietHandler(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *a):  # keep the console clean
             pass
+
+        def do_GET(self):  # the "Reset training" button hits GET /reset
+            if self.path.split("?")[0] == "/reset":
+                reset_event.set()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b"reset")
+                return
+            return super().do_GET()
 
     handler = functools.partial(QuietHandler, directory=str(directory))
     httpd = http.server.ThreadingHTTPServer(("", port), handler)
@@ -88,23 +99,31 @@ def main() -> None:
     spec.loader.exec_module(ewp)
 
     design = DesignParams()
-    mesh_dir = CadBridge().export_arm(design, name="candidate")
-    ewp.write_web_scene(design, mesh_dir, FIXED_TARGET)  # geometry for the viewer
+    # CadBridge.export_arm was removed in the refactor; the per-link STLs and the
+    # articulated viewer scene already exist on disk, so reuse them directly.
+    mesh_dir = WEBDEMO / "assets" / "scenes" / "arm_links"
+    if not (WEBDEMO / "assets" / "scenes" / "arm_articulated.xml").exists():
+        ewp.write_web_scene(design, mesh_dir, FIXED_TARGET)  # geometry for the viewer
     LIVE.mkdir(parents=True, exist_ok=True)
 
     # Eval model (shared) + a fixed set of random targets for the success metric.
     eval_model = mujoco.MjModel.from_xml_string(
         build_mjcf(design, mount_pos=MOUNT, mesh_dir=mesh_dir), {})
     ee_id = eval_model.site(EE_SITE).id
-    eval_targets = sample_reachable_targets(eval_model, design, n=4, seed=123)
     fixed_target = np.array(FIXED_TARGET)
+    # Success/final-dist are measured around the SAME demo target the viewer shows
+    # (small jitter), so "Success rate" agrees with the "fixed reach: HIT" badge
+    # instead of using faraway random targets the policy never sees.
+    _jrng = np.random.default_rng(123)
+    eval_targets = [fixed_target + _jrng.uniform(-0.03, 0.03, size=3) for _ in range(5)]
 
     # Initial "starting up" status so the page has something to show immediately.
     atomic_write_json(LIVE / "status.json",
                       {"running": True, "step": 0, "total": args.steps, "history": []})
 
     history: list[dict] = []
-    t0 = time.time()
+    t0_holder = [time.time()]  # reset per training run (mutable for the callback)
+    reset_event = threading.Event()
 
     def evaluate(model):
         # Streamed trajectory: the fixed reach, current policy.
@@ -149,7 +168,7 @@ def main() -> None:
             })
             atomic_write_json(LIVE / "status.json", {
                 "running": True, "step": int(self.num_timesteps),
-                "total": args.steps, "elapsed_s": round(time.time() - t0, 1),
+                "total": args.steps, "elapsed_s": round(time.time() - t0_holder[0], 1),
                 "history": history,
             })
             atomic_write_json(LIVE / "trajectory.json", {
@@ -170,39 +189,52 @@ def main() -> None:
             return None
 
         def _on_step(self) -> bool:
-            return True
+            return not reset_event.is_set()  # False stops learn() so we can restart
 
     venv = DummyVecEnv([
         (lambda i=i: Monitor(ReachEnv(design, mesh_dir=mesh_dir, seed=args.seed + i)))
         for i in range(args.n_envs)
     ])
-    model = PPO("MlpPolicy", venv, seed=args.seed, verbose=0,
-                n_steps=512, batch_size=512, gae_lambda=0.95, gamma=0.99,
-                learning_rate=3e-4, ent_coef=0.0, n_epochs=10,
-                policy_kwargs={"net_arch": [128, 128]})
 
-    serve(WEBDEMO, args.port)
+    def fresh_model():
+        return PPO("MlpPolicy", venv, seed=args.seed, verbose=0,
+                   n_steps=512, batch_size=512, gae_lambda=0.95, gamma=0.99,
+                   learning_rate=3e-4, ent_coef=0.0, n_epochs=10,
+                   policy_kwargs={"net_arch": [128, 128]})
+
+    def write_done(model):
+        atomic_write_json(LIVE / "status.json", dict(
+            running=False, step=int(model.num_timesteps), total=args.steps,
+            elapsed_s=round(time.time() - t0_holder[0], 1), history=list(history)))
+
+    serve(WEBDEMO, args.port, reset_event)
     print(f"[live] serving  http://localhost:{args.port}/live.html   "
-          f"(training {args.steps} steps; Ctrl-C to stop)")
+          f"(training {args.steps} steps; click Reset or Ctrl-C)")
 
+    model = None
     try:
-        model.learn(total_timesteps=args.steps, progress_bar=False,
-                    callback=LiveCallback())
+        while True:  # one full training run per loop; Reset (GET /reset) restarts it
+            history.clear()
+            t0_holder[0] = time.time()
+            reset_event.clear()
+            model = fresh_model()
+            atomic_write_json(LIVE / "status.json",
+                              {"running": True, "step": 0, "total": args.steps, "history": []})
+            print("[live] training from scratch…", flush=True)
+            model.learn(total_timesteps=args.steps, progress_bar=False,
+                        callback=LiveCallback())
+            if reset_event.is_set():
+                print("[live] reset requested — restarting from scratch", flush=True)
+                continue
+            write_done(model)
+            model.save(ROOT / "assets" / "policies" / "reach_live")
+            print("[live] done. saved reach_live.zip — click Reset to retrain.", flush=True)
+            while not reset_event.is_set():
+                time.sleep(0.3)
     except KeyboardInterrupt:
         print("\n[live] interrupted")
-    finally:
-        done = dict(running=False, step=int(model.num_timesteps),
-                    total=args.steps, elapsed_s=round(time.time() - t0, 1),
-                    history=history)
-        atomic_write_json(LIVE / "status.json", done)
-        model.save(ROOT / "assets" / "policies" / "reach_live")
-        print(f"[live] done. saved assets/policies/reach_live.zip. "
-              f"server still up at http://localhost:{args.port}/live.html — Ctrl-C to exit.")
-        try:
-            while True:
-                time.sleep(3600)
-        except KeyboardInterrupt:
-            pass
+        if model is not None:
+            write_done(model)
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@
       <geom type="capsule" fromto="0.27 0 0.05 0.27 0.12 0.04" size="0.04" rgba="0.86 0.66 0.52 1" contype="0" conaffinity="0" group="2"/>
       <geom type="box" pos="0.18 -0.4 0.19" size="0.22 0.2 0.19" rgba="0.34 0.30 0.27 1" contype="0" conaffinity="0" group="2"/>
     </body>
-    <body name="target_marker" pos="0.0 0.1 0.63">
+    <body name="target_marker" mocap="true" pos="0.0 0.1 0.63">
       <geom type="sphere" size="0.03" rgba="0.1 0.9 0.2 0.85" contype="0" conaffinity="0"/>
     </body>
   </worldbody>

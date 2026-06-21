@@ -14,20 +14,14 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
+import { attachSplatBackdrop } from "./splatBackdrop.js";
 import load_mujoco from "../node_modules/mujoco-js/dist/mujoco_wasm.js";
 
 const SCENE = "arm_articulated.xml";
 const LINKS = ["upper_arm", "forearm", "gripper"];
-const SPLAT_URL = "./assets/scenes/room.ply";
+// Splat URL + alignment now live in splatConfig.js (shared with main.js); the
+// backdrop itself is attached via splatBackdrop.js below.
 const TRAJ_URL = "./assets/scenes/arm_trajectory.json";
-
-// Hand-tuned alignment of the splat into the arm's world frame (edit after P-print).
-const SPLAT_XFORM = {
-  position: [0, 0, 0],
-  rotationYdeg: 0,
-  scale: 1.0,
-};
 
 const sub = document.getElementById("sub");
 
@@ -178,76 +172,10 @@ window.addEventListener("resize", () => {
 
 const bodies = buildBodies(model, scene);
 
-// --- the Gaussian splat room ------------------------------------------------
-let splatViewer = null;
-try {
-  splatViewer = new GaussianSplats3D.DropInViewer({
-    gpuAcceleratedSort: true,
-    sharedMemoryForWorkers: false, // python http.server sends no COOP/COEP headers
-  });
-  await splatViewer.addSplatScene(SPLAT_URL, {
-    splatAlphaRemovalThreshold: 5,
-    showLoadingUI: false,
-    position: SPLAT_XFORM.position,
-    rotation: [0, 0, 0, 1],
-    scale: [SPLAT_XFORM.scale, SPLAT_XFORM.scale, SPLAT_XFORM.scale],
-  });
-  splatViewer.rotation.y = (SPLAT_XFORM.rotationYdeg * Math.PI) / 180;
-  scene.add(splatViewer);
-  sub.textContent =
-    "room splat loaded — align with keyboard, P to print transform";
-} catch (e) {
-  sub.textContent =
-    "no room.ply yet — train it: scripts/recon/modal_gsplat.py, then cp room.ply assets/scenes/";
-  console.warn("splat load failed:", e);
-}
-
-// --- keyboard alignment of the splat ---------------------------------------
-const STEP = 0.05;
-window.addEventListener("keydown", (ev) => {
-  if (!splatViewer) return;
-  const p = splatViewer.position;
-  switch (ev.key.toLowerCase()) {
-    case "w":
-      p.z -= STEP;
-      break;
-    case "s":
-      p.z += STEP;
-      break;
-    case "a":
-      p.x -= STEP;
-      break;
-    case "d":
-      p.x += STEP;
-      break;
-    case "r":
-      p.y += STEP;
-      break;
-    case "f":
-      p.y -= STEP;
-      break;
-    case "q":
-      splatViewer.rotation.y += 0.05;
-      break;
-    case "e":
-      splatViewer.rotation.y -= 0.05;
-      break;
-    case "z":
-      splatViewer.scale.multiplyScalar(1.03);
-      break;
-    case "x":
-      splatViewer.scale.multiplyScalar(1 / 1.03);
-      break;
-    case "p":
-      console.log(
-        "SPLAT_XFORM = {",
-        `position: [${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)}],`,
-        `rotationYdeg: ${((splatViewer.rotation.y * 180) / Math.PI).toFixed(1)},`,
-        `scale: ${splatViewer.scale.x.toFixed(3)} };`,
-      );
-      break;
-  }
-});
+// --- the Gaussian splat room (shared backdrop + align tool) -----------------
+// One call now: load the splat, align it via SPLAT_XFORM, and register the
+// WASD/QE/ZX/P keyboard tool. Same module main.js uses behind the physics arm.
+await attachSplatBackdrop(scene, { align: true, statusEl: sub });
 
 // --- arm trajectory playback ------------------------------------------------
 let traj = null;

@@ -190,6 +190,7 @@ assets/policies/*_smoke.zip
 # Recon pipeline outputs (heavy / machine-specific): keep code + room.xml, drop binaries
 scripts/recon/frames/
 frames/
+frames_*/
 room_mesh*.ply
 assets/scenes/**/visual.obj
 assets/scenes/**/collision_*.stl
@@ -205,6 +206,7 @@ training_progress.mp4
 /room.ply
 webdemo/assets/scenes/room.ply
 webdemo/assets/scenes/room.ksplat
+webdemo/assets/scenes/room.splat
 
 # Live training dashboard runtime files (streamed by train_live.py)
 webdemo/assets/live/

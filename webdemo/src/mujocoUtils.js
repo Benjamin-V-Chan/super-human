@@ -32,6 +32,8 @@ export function setupGUI(parentContext) {
   parentContext.gui
     .add(parentContext.params, "scene", {
       "Prosthesis Arm": "arm.xml",
+      "Prosthesis Arm (articulated)": "arm_articulated.xml",
+      "Prosthesis Hand+Arm (23 DoF)": "arm_hand.xml",
       Humanoid: "humanoid.xml",
       Cassie: "agility_cassie/scene.xml",
       Hammock: "hammock.xml",
@@ -798,6 +800,11 @@ export async function downloadExampleScenesFolder(mujoco) {
   let allFiles = [
     "arm.xml",
     "arm_visual.stl",
+    "arm_articulated.xml",
+    "arm_links/upper_arm.stl",
+    "arm_links/forearm.stl",
+    "arm_links/gripper.stl",
+    "arm_hand.xml",
     "22_humanoids.xml",
     "adhesion.xml",
     "agility_cassie/assets/achilles-rod.obj",
@@ -883,6 +890,23 @@ export async function downloadExampleScenesFolder(mujoco) {
  * @param {Float32Array|Float64Array} buffer
  * @param {number} index
  * @param {THREE.Vector3} target */
+/** Find the id of a named model element by decoding model.names.
+ * @param {*} model
+ * @param {*} adr  one of model.name_{body,site,geom,...}adr
+ * @param {number} count  matching n{body,site,geom,...}
+ * @param {string} name */
+export function nameToId(model, adr, count, name) {
+  const names = new Uint8Array(model.names);
+  const td = new TextDecoder();
+  for (let i = 0; i < count; i++) {
+    let s = adr[i],
+      e = s;
+    while (e < names.length && names[e] !== 0) e++;
+    if (td.decode(names.subarray(s, e)) === name) return i;
+  }
+  return -1;
+}
+
 export function getPosition(buffer, index, target, swizzle = true) {
   if (swizzle) {
     return target.set(
