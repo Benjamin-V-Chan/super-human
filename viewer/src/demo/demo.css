@@ -77,6 +77,8 @@
 .node.running { border-color: var(--accent); box-shadow: 0 0 24px rgba(0,212,255,.18); }
 .node.done { border-color: #1f4a3a; }
 .node.pending-type { border-style: dashed; }
+.node.capture { width: 290px; }
+.node-pov { margin-top: 10px; }
 
 .node-top { display: flex; justify-content: space-between; align-items: center; }
 .node-icon { font-size: 22px; }

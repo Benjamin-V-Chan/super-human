@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import CadAssembly from './CadAssembly.jsx'
 import JsonBlock from './JsonBlock.jsx'
 import IntegrationGate from './IntegrationGate.jsx'
+import RayBanPOV from './RayBanPOV.jsx'
 import { PIPELINE, CAD_PARTS, CAD_PARAMS, TIMING } from './demoData.js'
 import './demo.css'
 
@@ -104,7 +105,7 @@ export default function DemoPage() {
             return (
               <div className="rail-cell" key={stage.key}>
                 <article
-                  className={`node ${st} ${stage.status === 'pending' ? 'pending-type' : ''} ${active === stage.key ? 'focus' : ''}`}
+                  className={`node ${st} ${stage.key === 'capture' ? 'capture' : ''} ${stage.status === 'pending' ? 'pending-type' : ''} ${active === stage.key ? 'focus' : ''}`}
                   onClick={() => setActive(active === stage.key ? null : stage.key)}
                 >
                   <div className="node-top">
@@ -114,6 +115,16 @@ export default function DemoPage() {
                   <div className="node-name">{stage.name}</div>
                   <div className="node-role">{stage.role}</div>
                   <div className="node-tech">{stage.tech}</div>
+
+                  {stage.key === 'capture' && (
+                    <div className="node-pov">
+                      <RayBanPOV
+                        recording
+                        sampling={status.perception === 'running'}
+                        taskHint="drinking · one-handed"
+                      />
+                    </div>
+                  )}
 
                   {stage.consumes && (
                     <div className="node-io in">◂ {stage.consumes}</div>
