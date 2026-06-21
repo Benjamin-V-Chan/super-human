@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 import struct
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 from prosthesis_rl.contracts import DesignParams
 
@@ -18,14 +20,119 @@ class CadBridge:
     def __init__(self, output_dir: str | Path = "assets/stl") -> None:
         self.output_dir = Path(output_dir)
 
-    def export_stl(self, params: DesignParams, name: str = "candidate") -> Path:
+    def export_mjcf(self, spec: Any, name: str = "candidate") -> Path:
+        """Generate minimal valid MJCF from a MorphologySpec (or compatible dict).
+
+        Writes to assets/mjcf/{name}.xml for Nathan's MuJoCo environment.
+        Accepts the MorphologySpec dataclass from design.py or a plain dict.
+        """
+        links = getattr(spec, "links", None) or spec.get("links", [])
+        joints = getattr(spec, "joints", None) or spec.get("joints", [])
+        actuators = getattr(spec, "actuators", None) or spec.get("actuators", [])
+
+        mjcf_dir = self.output_dir.parent / "mjcf"
+        mjcf_dir.mkdir(parents=True, exist_ok=True)
+
+        root = ET.Element("mujoco", model=f"prosthesis_{name}")
+        ET.SubElement(root, "compiler", angle="degree")
+
+        worldbody = ET.SubElement(root, "worldbody")
+        parent_body = ET.SubElement(worldbody, "body", name="mount", pos="0 0 0")
+
+        joint_map: dict[str, Any] = {}
+        for j in joints:
+            jname = j.name if hasattr(j, "name") else j["name"]
+            joint_map[jname] = j
+
+        # Canonical joint order matches link order (proximal → distal)
+        joint_order = ["shoulder_flexion", "elbow_flexion"]
+        z_offset = 0.0
+
+        for i, link in enumerate(links):
+            link_name = link.name if hasattr(link, "name") else link["name"]
+            link_len = link.length_m if hasattr(link, "length_m") else link["length_m"]
+            link_mass = link.mass_kg if hasattr(link, "mass_kg") else link["mass_kg"]
+
+            body = ET.SubElement(
+                parent_body, "body",
+                name=link_name,
+                pos=f"0 0 {-z_offset:.4f}",
+            )
+
+            if i < len(joint_order) and joint_order[i] in joint_map:
+                j = joint_map[joint_order[i]]
+                jname = j.name if hasattr(j, "name") else j["name"]
+                lo, hi = (
+                    j.limits_rad if hasattr(j, "limits_rad") else j["limits_rad"]
+                )
+                ET.SubElement(
+                    body, "joint",
+                    name=jname,
+                    type="hinge",
+                    axis="1 0 0",
+                    range=f"{math.degrees(lo):.1f} {math.degrees(hi):.1f}",
+                )
+
+            radius = 0.030 if i == 0 else 0.025
+            ET.SubElement(
+                body, "geom",
+                type="capsule",
+                size=f"{radius:.4f} {link_len / 2:.4f}",
+                pos=f"0 0 {-link_len / 2:.4f}",
+                mass=str(link_mass),
+            )
+
+            z_offset += link_len
+            parent_body = body
+
+        actuator_el = ET.SubElement(root, "actuator")
+        for act in actuators:
+            ajoint = act.joint if hasattr(act, "joint") else act["joint"]
+            atorque = (
+                act.torque_limit_nm if hasattr(act, "torque_limit_nm")
+                else act["torque_limit_nm"]
+            )
+            ET.SubElement(actuator_el, "motor", joint=ajoint, gear=f"{atorque:.1f}")
+
+        tree = ET.ElementTree(root)
+        ET.indent(tree, space="  ")
+        mjcf_path = mjcf_dir / f"{name}.xml"
+        tree.write(str(mjcf_path), encoding="unicode", xml_declaration=False)
+        return mjcf_path
+
+    def export_stl(self, params: Any, name: str = "candidate") -> Path:
+        """Export STL from DesignParams or MorphologySpec (duck-typed)."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
         stl_path = self.output_dir / f"{name}.stl"
-        triangles = self._build_arm_triangles(params)
+        design = self._coerce_to_design_params(params)
+        triangles = self._build_arm_triangles(design)
         stl_path.write_bytes(self._pack_binary_stl(triangles))
         return stl_path
 
     # ── Geometry builders ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _coerce_to_design_params(params: Any) -> DesignParams:
+        """Return DesignParams from either DesignParams or MorphologySpec."""
+        if isinstance(params, DesignParams):
+            return params
+        # MorphologySpec duck-typing: extract upper/forearm from links list
+        links = getattr(params, "links", None) or params.get("links", [])
+        upper_m = links[0].length_m if links else 0.30
+        forearm_m = links[1].length_m if len(links) > 1 else 0.26
+        joints = getattr(params, "joints", None) or params.get("joints", [])
+        joint_limits: dict[str, tuple[float, float]] = {}
+        for j in joints:
+            jname = j.name if hasattr(j, "name") else j["name"]
+            lo, hi = j.limits_rad if hasattr(j, "limits_rad") else j["limits_rad"]
+            joint_limits[jname.split("_")[0]] = (math.degrees(lo), math.degrees(hi))
+        return DesignParams(
+            upper_arm_len=upper_m,
+            forearm_len=forearm_m,
+            joint_stiffness=1.0,
+            grip_width=0.08,
+            joint_limits=joint_limits,
+        )
 
     def _build_arm_triangles(self, params: DesignParams) -> list[tuple]:
         """Return list of (normal, v0, v1, v2) tuples for all arm components."""
