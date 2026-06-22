@@ -173,7 +173,7 @@ const VENV_PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python')
 
 function runPythonJson(script, payload, timeoutMs = 30_000, args = []) {
   return new Promise((resolve, reject) => {
-    const python = process.env.ARMASAI_PYTHON || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3')
+    const python = process.env.SUPERHUMAN_PYTHON || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3')
     const child = spawn(python, [script, ...args], { cwd: REPO_ROOT, stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = '', stderr = ''
     const timer = setTimeout(() => {
@@ -308,7 +308,7 @@ Infer from context:
 - Aesthetic preference → carbon_fiber with neon accents
 - Missing info → use safe defaults for average adult`
 
-const CHAT_SYSTEM = (params) => `You are an expert prosthetist helping refine a prosthetic arm design in the Armasai CAD system.
+const CHAT_SYSTEM = (params) => `You are an expert prosthetist helping refine a prosthetic arm design in the Super Human CAD system.
 
 Current design parameters:
 ${JSON.stringify(params, null, 2)}
@@ -477,7 +477,7 @@ app.post('/api/generate-scene', (req, res) => {
 
   const pythonBin = fs.existsSync(path.join(REPO_ROOT, '.venv', 'bin', 'python3'))
     ? path.join(REPO_ROOT, '.venv', 'bin', 'python3')
-    : (process.env.ARMASAI_PYTHON || 'python3')
+    : (process.env.SUPERHUMAN_PYTHON || 'python3')
 
   const child = spawn(pythonBin, [GEN_SCENE_SCRIPT], {
     env: { ...process.env, PYTHONPATH: REPO_ROOT },
@@ -516,7 +516,7 @@ app.get('/api/scene-showcase', (req, res) => {
   const action = req.query.action || 'reach for an object'
   const pythonBin = fs.existsSync(path.join(REPO_ROOT, '.venv', 'bin', 'python3'))
     ? path.join(REPO_ROOT, '.venv', 'bin', 'python3')
-    : (process.env.ARMASAI_PYTHON || 'python3')
+    : (process.env.SUPERHUMAN_PYTHON || 'python3')
 
   const child = spawn(pythonBin, [GEN_SCENE_SCRIPT], {
     env: { ...process.env, PYTHONPATH: REPO_ROOT },
@@ -562,14 +562,14 @@ app.post('/api/run-multi-pipeline', (req, res) => {
   openSSE(res)
   sendSSE(res, { type: 'pipeline_start', clip_paths: clipPaths, n_clips: clipPaths.length })
 
-  const pythonBin = process.env.ARMASAI_PYTHON
+  const pythonBin = process.env.SUPERHUMAN_PYTHON
     || path.join(REPO_ROOT, '.venv', 'bin', 'python3')
     || 'python3'
 
   const child = spawn(
     fs.existsSync(path.join(REPO_ROOT, '.venv', 'bin', 'python3'))
       ? path.join(REPO_ROOT, '.venv', 'bin', 'python3')
-      : (process.env.ARMASAI_PYTHON || 'python3'),
+      : (process.env.SUPERHUMAN_PYTHON || 'python3'),
     [MULTI_PIPELINE_SCRIPT],
     {
       env: { ...process.env, PYTHONPATH: REPO_ROOT },
@@ -628,7 +628,7 @@ app.post('/api/run', (req, res) => {
 
   const pythonBin = fs.existsSync(path.join(REPO_ROOT, '.venv', 'bin', 'python3'))
     ? path.join(REPO_ROOT, '.venv', 'bin', 'python3')
-    : (process.env.ARMASAI_PYTHON || 'python3')
+    : (process.env.SUPERHUMAN_PYTHON || 'python3')
 
   const child = spawn(pythonBin, [MULTI_PIPELINE_SCRIPT], {
     env: { ...process.env, PYTHONPATH: REPO_ROOT },
@@ -676,4 +676,4 @@ app.use(express.static(path.resolve(__dirname, '../webdemo')))
 
 // ── App listen ────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001
-app.listen(PORT, () => console.log(`Armasai server :${PORT}`))
+app.listen(PORT, () => console.log(`Super Human server :${PORT}`))

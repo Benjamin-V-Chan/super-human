@@ -1,4 +1,4 @@
-# ARMASAI — Work Split
+# Super Human — Work Split
 
 Single source of truth for ownership, task split, milestones, and timeline. Product scope lives in [PRD.md](PRD.md); contracts and evaluation live in [TECHNICAL_PLAN.md](TECHNICAL_PLAN.md).
 

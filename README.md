@@ -1,8 +1,8 @@
-# ARMASAI
+# Super Human
 
 **AI-driven prosthetic limb design and simulation — built at the YC x HUD Hackathon.**
 
-ARMASAI turns a short egocentric video clip into a personalized, physics-validated prosthetic limb design. A vision model reads the clip, infers the specific movements that are difficult, sizes a kinematic arm morphology from those measurements, runs fixed-seed rollouts in MuJoCo to score the candidate, and delivers evaluation metrics, a rollout replay, and exportable CAD geometry — all without touching physical hardware.
+Super Human turns a short egocentric video clip into a personalized, physics-validated prosthetic limb design. A vision model reads the clip, infers the specific movements that are difficult, sizes a kinematic arm morphology from those measurements, runs fixed-seed rollouts in MuJoCo to score the candidate, and delivers evaluation metrics, a rollout replay, and exportable CAD geometry — all without touching physical hardware.
 
 ---
 

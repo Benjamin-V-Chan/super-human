@@ -1,11 +1,11 @@
 ---
-description: Build the ARMASAI 5-slide pitch deck (problem / solution / team) from the saved pitch context + Benji ER photo
+description: Build the Super Human 5-slide pitch deck (problem / solution / team) from the saved pitch context + Benji ER photo
 argument-hint: "[optional: audience or tweak, e.g. 'investors, 90s read']"
 ---
 
-# /pitch-deck — ARMASAI pitch deck
+# /pitch-deck — Super Human pitch deck
 
-You are co-building a **5-slide pitch deck** for **ARMASAI**. Work from the saved
+You are co-building a **5-slide pitch deck** for **Super Human**. Work from the saved
 context — do NOT invent facts.
 
 ## Sources to read first (in this order)
@@ -26,14 +26,14 @@ It's a real photo of our friend — present it with respect, not shock value.
 
 ## Build
 
-Produce **one self-contained HTML deck** at `docs/pitch/armasai-deck.html` using
+Produce **one self-contained HTML deck** at `docs/pitch/superhuman-deck.html` using
 **reveal.js via CDN** (so arrow keys / space navigate, 16:9). Embed the photo by
 relative path (`../../assets/pitch/benjihospital.jpg`). No build step required —
 it must open directly in a browser.
 
 **Exactly 5 slides, short + punchy** (headline + a few lines; never a wall of text):
 
-1. **Title / hero** — `⬡ ARMASAI` + the one-liner. Subtle cyan/violet glow.
+1. **Title / hero** — `⬡ Super Human` + the one-liner. Subtle cyan/violet glow.
 2. **Problem** — Benji's story (workout → torn muscle → rhabdomyolysis → ER →
    everyday tasks now hard) with the ER photo, landing on *"prosthetics aren't
    one-size-fits-all."*
@@ -53,7 +53,7 @@ mark. Human + urgent + hopeful, with engineering credibility.
 
 ## Finish
 
-- Save to `docs/pitch/armasai-deck.html`, then **open it** (`open docs/pitch/armasai-deck.html`)
+- Save to `docs/pitch/superhuman-deck.html`, then **open it** (`open docs/pitch/superhuman-deck.html`)
   so the user can present immediately.
 - Print a one-line summary of each slide and remind the user to paste the live
   Vercel URL into `docs/pitch/CONTEXT.md` once deployed, then re-run `/pitch-deck`.

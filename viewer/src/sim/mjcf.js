@@ -15,7 +15,7 @@ export function buildMjcf(design = {}) {
   const kp3 = (14 * k).toFixed(1)
   const damp = (0.6 * Math.sqrt(k)).toFixed(3)
 
-  return `<mujoco model="armasai_prosthesis">
+  return `<mujoco model="superhuman_prosthesis">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
   <default>

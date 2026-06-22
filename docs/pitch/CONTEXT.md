@@ -1,4 +1,4 @@
-# ARMASAI — Pitch Context
+# Super Human — Pitch Context
 
 > Single source of truth for the pitch deck. The `/pitch-deck` command reads this
 > file (plus the linked repo docs) and builds the slides from it. Edit here, not
@@ -6,7 +6,7 @@
 
 ## One-liner
 
-**ARMASAI turns a pair of Meta Ray-Ban glasses into a personalized prosthetics
+**Super Human turns a pair of Meta Ray-Ban glasses into a personalized prosthetics
 engineer** — it watches your daily routine, finds the tasks you struggle with,
 and designs a prosthetic tailored to *your* life, not an average body.
 
@@ -20,7 +20,7 @@ opening bottles, carrying things, the small one-handed tasks that make up a day.
 
 **Photo to use on the Problem slide:** `assets/pitch/benjihospital.jpg`
 (Benji in the ER). Treat it with respect — it's a real photo of our friend; this
-is why we built ARMASAI.
+is why we built Super Human.
 
 ## The problem (general)
 
@@ -32,12 +32,12 @@ is why we built ARMASAI.
 
 ## The solution
 
-**ARMASAI** = wearable perception + AI design, end to end:
+**Super Human** = wearable perception + AI design, end to end:
 
 1. The user wears **Meta Ray-Ban glasses** and just lives their day.
-2. The egocentric video shows ARMASAI **which tasks stand out as difficult, and
+2. The egocentric video shows Super Human **which tasks stand out as difficult, and
    why** (which limb is compensating, what motion fails).
-3. ARMASAI **designs a fully capable prosthetic tailored to that routine** —
+3. Super Human **designs a fully capable prosthetic tailored to that routine** —
    sized and articulated for the specific actions that matter to *that* person.
 4. It **simulates and validates** the design in physics, then outputs a
    manufacturable CAD model.
@@ -85,12 +85,12 @@ Live demo runs the whole thing in the browser from a single uploaded clip.
 - Accent cyan `#00d4ff`, accent violet `#7c3aed`, success `#22c55e`, warning `#f59e0b`
 - Fonts: **Inter** (headings/body), **JetBrains Mono** (data/labels)
 - Mood: human + urgent + hopeful, with engineering credibility. Dark, premium,
-  high-contrast. Brand mark: ⬡ ARMASAI.
+  high-contrast. Brand mark: ⬡ Super Human.
 
 ## Deck spec
 
 - **Exactly 5 slides, short copy** (headline + a few punchy lines each; no walls of text):
-  1. **Title / hero** — ⬡ ARMASAI + the one-liner.
+  1. **Title / hero** — ⬡ Super Human + the one-liner.
   2. **Problem** — Benji's story + the ER photo + "prosthetics aren't one-size-fits-all."
   3. **Solution** — Ray-Ban glasses → personalized prosthetic, the 4 steps.
   4. **How it works** — the 5-stage pipeline, visual, with the in-browser demo callout.

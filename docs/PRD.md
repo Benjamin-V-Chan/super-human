@@ -1,4 +1,4 @@
-# ARMASAI — Product Requirements Document
+# Super Human — Product Requirements Document
 
 > **Event:** YC x HUD Hackathon
 > **Status:** Active build
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-**ARMASAI** is a simulation-first system for rapidly designing and validating personalized assistive-limb morphologies. Given a short egocentric clip or a structured task description, it:
+**Super Human** is a simulation-first system for rapidly designing and validating personalized assistive-limb morphologies. Given a short egocentric clip or a structured task description, it:
 
 1. Runs a vision model (Gemini) to extract a `TaskSpec` — the action, affected side, grip pattern, range-of-motion, and limb measurements.
 2. Drives an LLM-based design agent to generate explicit `DesignParams` candidates (links, joints, limits, actuators, masses) and rank them through spatial validation gates.
@@ -22,7 +22,7 @@ The product outcome is a **reproducible sim bundle**: scenario config, morpholog
 
 ## 2. Motivation
 
-Prosthetics are not one-size-fits-all. Every user has a different injury, body geometry, and daily routine — but the clinical workflow for matching a device to a person's actual tasks is slow, manual, and expensive. ARMASAI bets that AI design reasoning combined with physics simulation can search the morphology space and validate a candidate design fast, producing measurable evidence *before* any real hardware exists.
+Prosthetics are not one-size-fits-all. Every user has a different injury, body geometry, and daily routine — but the clinical workflow for matching a device to a person's actual tasks is slow, manual, and expensive. Super Human bets that AI design reasoning combined with physics simulation can search the morphology space and validate a candidate design fast, producing measurable evidence *before* any real hardware exists.
 
 ---
 

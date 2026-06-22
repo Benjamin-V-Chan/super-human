@@ -1,4 +1,4 @@
-/* ── ARMASAI pipeline demo — single-page layout ────────────────────────────── */
+/* ── Super Human pipeline demo — single-page layout ────────────────────────────── */
 .demo {
   height: 100%; display: flex; flex-direction: column; overflow: hidden;
   color: var(--text);

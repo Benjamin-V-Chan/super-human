@@ -1,5 +1,5 @@
 /**
- * ArmasAI Pipeline Dashboard — main module
+ * Super Human Pipeline Dashboard — main module
  *
  * Connects to pipeline_server.py via SSE, drives the 6-stage timeline,
  * runs a MuJoCo WASM viewer for live sim replay and final manual control,

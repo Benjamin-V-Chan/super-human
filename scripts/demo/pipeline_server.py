@@ -1,4 +1,4 @@
-"""HTTP + SSE server for the ArmasAI pipeline dashboard.
+"""HTTP + SSE server for the Super Human pipeline dashboard.
 
 Serves webdemo/pipeline.html and exposes REST/SSE endpoints:
   GET  /                        → pipeline.html
@@ -212,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="ArmasAI pipeline server")
+    ap = argparse.ArgumentParser(description="Super Human pipeline server")
     ap.add_argument("--port", type=int, default=8012)
     ap.add_argument("--quick", action="store_true", help="quick_mode (fewer seeds/timesteps)")
     args = ap.parse_args()

@@ -1,5 +1,5 @@
 {
-  "name": "armasai-adl-onehanded",
+  "name": "superhuman-adl-onehanded",
   "description": "Egocentric ADL clips of a single left-hand-absent subject performing bimanual tasks one-handed. Ground-truth labels for the perception agent: the specific action, which side needs the prosthesis (affected), the compensating side (residual), and the ADL task categories the design should optimize.",
   "subject": "single subject, left upper limb absent",
   "label_schema": {

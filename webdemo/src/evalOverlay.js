@@ -25,7 +25,7 @@ const ROM_NORM = 0.5; // rad of cumulative over-limit travel that maps rom to 1
 const ARM_BODIES = ["mount", "arm", "upper_arm", "forearm", "gripper"];
 const DEFAULT_WEIGHTS = { success: 1.0, effort: 0.3, rom: 1.0, stability: 0.2 };
 const DEFAULT_THR_CM = 8;
-const BEST_KEY = "armasai_best_v1";
+const BEST_KEY = "superhuman_best_v1";
 
 const COMPS = [
   ["success", "#5be36e"],

@@ -1,5 +1,5 @@
 // ── Demo pipeline data model ──────────────────────────────────────────────────
-// The linear multi-agent path for ARMASAI: a Meta Ray-Ban egocentric clip of a
+// The linear multi-agent path for Super Human: a Meta Ray-Ban egocentric clip of a
 // person performing an ADL task flows through perception → design → simulation →
 // policy → CAD output. Each stage declares the contract it consumes and the
 // contract it emits, plus a sample payload so the demo can "play" the handoff.
